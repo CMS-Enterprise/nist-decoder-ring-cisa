@@ -1,0 +1,23 @@
+{
+  "packageFiles": ["app/package.json"],
+  "bumpFiles": ["app/package.json"],
+  "infile": "CHANGELOG.md",
+  "header": "# Changelog\n\nAll notable changes to this project will be documented in this file.\n",
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements" },
+    { "type": "refactor", "section": "Code Refactoring" },
+    { "type": "chore", "section": "Maintenance", "hidden": false },
+    { "type": "docs", "hidden": true },
+    { "type": "style", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "ci", "hidden": true }
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}} [no ci]",
+  "skip": {
+    "changelog": false,
+    "commit": false,
+    "tag": false
+  }
+}

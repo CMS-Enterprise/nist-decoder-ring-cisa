@@ -1,0 +1,7 @@
+# Copy to backend.hcl (gitignored), then: terraform init -backend-config=backend.hcl
+# The values are infra/bootstrap's output "environment_backend_config".
+bucket       = "<name_prefix>-prod-tfstate-<account_id>-<region>"
+key          = "environments/prod/terraform.tfstate"
+region       = "<region>"
+use_lockfile = true
+encrypt      = true

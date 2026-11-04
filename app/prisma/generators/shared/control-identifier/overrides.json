@@ -1,0 +1,12 @@
+{
+  "comment": "Declared exceptions to canonical control identifiers. An entry records a known problem at source; it never rewrites a value. Remove an entry when the source catalog is corrected.",
+  "malformed": [],
+  "_malformed_shape": {
+    "raw": "the identifier exactly as the source spells it",
+    "catalog": "which catalog it came from"
+  },
+  "collisions": [],
+  "_collisions_shape": {
+    "identity": "canonical control number plus its statement letter, e.g. AC-01a -- NOT the control number alone, since a control and its own lettered items share one"
+  }
+}

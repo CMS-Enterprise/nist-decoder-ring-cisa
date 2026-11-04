@@ -1,0 +1,33 @@
+code,name
+0101,Policy Enforcement
+0102,Asset and Supply Chain
+0103,Resource Access
+0104,Device Threat Protection
+0105,Device Visibility and Analytics
+0106,Device Automation and Orchestration
+0201,Authentication
+0202,Identity Stores
+0203,Risk Assessments
+0204,Access Management
+0205,Identity Visibility and Analytics
+0206,Identity Automation and Orchestration
+0301,Traffic Management
+0302,Traffic Segmentation
+0303,Traffic Encryption
+0304,Resilience
+0305,Network Visibility and Analytics
+0306,Network Automation and Orchestration
+0401,Application Access
+0402,Application Threat Protection
+0403,Accessible Applications
+0404,Secure App Development
+0405,Security Testing
+0406,Application Visibility and Analytics
+0407,Application Automation and Orchestration
+0501,Inventory Management
+0502,Categorization
+0503,Availability
+0504,Data Access
+0505,Encryption
+0506,Data Visibility and Analytics
+0507,Data Automation and Orchestration

@@ -1,0 +1,702 @@
+// Decoder Ring schema
+// A control catalog crosswalked to the Zero Trust Maturity Model, with audit, versioning and data-source tracking
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated/prisma"
+  // Binary targets for cross-platform Docker support
+  // - native: Auto-detects host OS (macOS/Windows for local dev)
+  // - linux-musl-*-3.0.x: Alpine Linux with OpenSSL 3.x
+  // No OpenSSL 1.1.x target: the Alpine detection bug it worked around is gone
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===== ENUMS =====
+
+enum AuthorityLevel {
+  official // the publisher's own documents - highest trust
+  approved // vetted guidance
+  reference // External partner docs - informational
+}
+
+enum EntityType {
+  partner // a partner team
+  tool // a platform or service
+  team // an internal team
+  agency // a parent agency
+}
+
+// Zero Trust pillars, per the CISA Zero Trust Maturity Model
+enum ZTPillar {
+  IDENTITY // Identity pillar
+  DEVICES // Devices pillar
+  NETWORKS // Networks pillar
+  APPLICATIONS // Applications & Workloads pillar
+  DATA // Data pillar
+  CROSS_CUTTING // Governance, Visibility & Analytics, Automation & Orchestration
+  TBD // Placeholder — not yet determined
+}
+
+// Zero Trust Maturity Levels
+enum ZTMaturityLevel {
+  TRADITIONAL // Starting point with perimeter-based security
+  INITIAL // Beginning automation and visibility
+  ADVANCED // Centralized identity and automated responses
+  OPTIMAL // Fully automated, continuous verification
+  TBD // Placeholder — not yet determined
+}
+
+// How CISA's control mapping designates a control for a function: Key directly provides
+// the function at the maturity, Supporting enhances it, Informative directs how it is
+// implemented. Declaration order is strength order.
+enum ZTDesignation {
+  KEY
+  SUPPORTING
+  INFORMATIVE
+}
+
+// Link types for a ReferenceLink (the kind of reference doc it represents).
+enum ReferenceLinkType {
+  REFERENCE // General documentation
+  TOOL // a platform or service
+  GUIDANCE // Implementation guidance
+  POLICY // Policy document
+}
+
+// Where a reference doc is published. Extensible — promote hosts out of EXTERNAL as new domains appear.
+enum LinkDomain {
+  NIST // the catalog's own publisher: csrc.nist.gov, nvlpubs.nist.gov
+  FEDERAL // other federal policy and law: whitehouse.gov, govinfo.gov, federalregister.gov, congress.gov
+  EXTERNAL // non-federal references: iso.org, commoncriteriaportal.org, publisher DOIs
+}
+
+// Baseline a control-parameter value applies to: the impact levels, plus the privacy baseline.
+enum Baseline {
+  LOW
+  MODERATE
+  HIGH
+  PRIVACY // NIST SP 800-53's privacy baseline
+}
+
+// Whether the catalog still carries a control. A withdrawn control keeps its number and
+// title so its successors can be followed; the layer cake and filters read live ones only.
+enum ControlStatus {
+  LIVE
+  WITHDRAWN
+}
+
+// How a control relates to another control, or to a release, in the catalog's lineage.
+enum LineageKind {
+  INCORPORATED_INTO // withdrawn; its content now lives in the related control
+  MOVED_TO // withdrawn; renumbered as the related control
+  ADDED // new in `release`, absent from `sinceRelease`
+  DROPPED // in `sinceRelease`, absent from `release`
+}
+
+// ===== CATALOG VERSIONING =====
+
+/// The catalog a deployment serves. One row is active; each deployment holds exactly one
+/// catalog and they are never co-resident, which is why `isActive` needs no per-family
+/// uniqueness constraint. The identity fields below are what let a second catalog name and
+/// label itself without renaming a model or a column.
+model NistVersion {
+  id      String @id @default(cuid())
+  version String @unique // "5.0", "5.1", "5.2"
+
+  /// Stable machine identifier for the catalog, e.g. "nist-800-53-r5".
+  /// Distinct from `version`, which is only the revision within one catalog family.
+  catalogKey String @unique
+
+  /// What the UI shows, e.g. "NIST SP 800-53 Rev 5". The only server-side source of that string.
+  displayLabel String
+
+  /// The published document this catalog tracks, e.g. "NIST SP 800-53 Rev 5". Required for
+  /// either kind of catalog: a tailored catalog names what it tailors, and a stock catalog names
+  /// itself.
+  upstreamRevision String
+
+  /// How this catalog departs from its upstream. Nullable, and the null carries meaning: a
+  /// stock catalog applies no tailoring, so there is nothing to state.
+  tailoringNote String? @db.Text
+
+  releaseDate DateTime
+  isActive    Boolean          @default(false) // Only one active version at a time
+  description String?          @db.Text
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  controls    NistControl[]
+  lineage     ControlLineage[]
+
+  @@index([isActive])
+}
+
+// ===== CONTROL FAMILIES =====
+
+model ControlFamily {
+  id        String        @id // Short code: "AC", "AT", "AU" (not a CUID)
+  name      String // Full name: "Access Control", "Audit and Accountability"
+  sortOrder Int // Display ordering (1-20)
+  controls  NistControl[]
+}
+
+// ===== CORE CONTROLS =====
+
+model NistControl {
+  id String @id @default(cuid())
+
+  // Core identifiers
+  controlNumber String // Full ID: "AC-01", "AC-02(01)", etc.
+  controlName   String // e.g., "Policy and Procedures"
+  discussion    String? @db.Text // The catalog's own guidance prose for this control (OSCAL "guidance" part). In a tailored catalog this slot carries the tailoring authority's discussion instead.
+
+  // OSCAL provenance
+  oscalId String? // OSCAL catalog ID: "ac-1", "ac-2.1"
+  sortId  String? // OSCAL sort key: "ac-01", "ac-02(01)"
+
+  // Metadata
+  reviewFrequency     String? // "Annually (365 Days)"
+  assessmentFrequency String? // "Three (3) Years"
+  baselineLabels      String[] // PostgreSQL array: ["Low", "Moderate", "High"]
+  priority            String? // "P1", "P2", etc.
+  relatedControls     String[] // PostgreSQL array: ["IA-1", "PM-9", "PM-24"]
+  referencePolicy     String?       @db.Text // Legal/compliance references
+  status              ControlStatus @default(LIVE)
+
+  // Family relation
+  controlFamilyId String
+  controlFamily   ControlFamily @relation(fields: [controlFamilyId], references: [id])
+
+  // Parent/child relationship for enhancements
+  parentControlId String?
+  parentControl   NistControl?  @relation("ControlHierarchy", fields: [parentControlId], references: [id], onDelete: Cascade)
+  children        NistControl[] @relation("ControlHierarchy")
+
+  // Versioning
+  nistVersionId String
+  nistVersion   NistVersion @relation(fields: [nistVersionId], references: [id], onDelete: Cascade)
+
+  // Audit trail
+  createdById String
+  createdBy   User    @relation("NistControlCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("NistControlUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  links                NistLink[]
+  referenceLinks       NistControlLink[] // Reference documents for this control, via the junction
+  parts                ControlPart[]
+  parameters           ControlParameter[]
+  ztMapping            ZeroTrustMapping?           @relation("ControlToZTMapping") // One-to-one: a control may have a ZT mapping
+  externalEntities     NistControlExternalEntity[]
+  assessmentObjectives AssessmentObjective[] // SP 800-53A determination statements
+  assessmentMethods    AssessmentMethod[] // SP 800-53A examine / interview / test entries
+  lineage              ControlLineage[]            @relation("LineageOf") // what the catalog records about this control
+  lineageFrom          ControlLineage[]            @relation("LineageTo") // withdrawn controls whose content this one took
+
+  @@unique([controlNumber, nistVersionId]) // Same control can exist in multiple versions
+  @@index([controlFamilyId, nistVersionId])
+  @@index([controlNumber])
+  @@index([parentControlId])
+  @@index([nistVersionId, status])
+}
+
+// ===== CONTROL LINEAGE =====
+
+/// One relation the catalog records about a control: a withdrawn control's successor, or a
+/// control added or dropped between two releases. Keyed by control number, because a
+/// release delta can name a control the seeded release does not carry; the foreign keys
+/// are set when that control is seeded.
+model ControlLineage {
+  id String @id
+
+  nistVersionId String
+  nistVersion   NistVersion @relation(fields: [nistVersionId], references: [id], onDelete: Cascade)
+
+  controlNumber        String // the control the row is about, e.g. "AC-02(10)"
+  kind                 LineageKind
+  relatedControlNumber String? // the successor, for INCORPORATED_INTO and MOVED_TO
+  relatedPartOscalId   String? // the successor's item, where the catalog names one, e.g. "ac-2_smt.k"
+  release              String // the release that records it, e.g. "5.2.0"
+  sinceRelease         String? // the release compared against, for ADDED and DROPPED, e.g. "5.1.1"
+
+  controlId        String?
+  control          NistControl? @relation("LineageOf", fields: [controlId], references: [id], onDelete: Cascade)
+  relatedControlId String?
+  relatedControl   NistControl? @relation("LineageTo", fields: [relatedControlId], references: [id], onDelete: Cascade)
+  relatedPartId    String?
+  relatedPart      ControlPart? @relation(fields: [relatedPartId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([controlId])
+  @@index([relatedControlId])
+  @@index([relatedPartId])
+  @@index([nistVersionId, kind])
+}
+
+// ===== CONTROL PARTS (Structured Statement Hierarchy) =====
+
+model ControlPart {
+  id          String  @id // Deterministic: "part_ac-2_smt.a_v52"
+  oscalPartId String // OSCAL source ID: "ac-2_smt.a"
+  label       String? // "a", "1", null for root statement
+  name        String // "statement" or "item"
+  prose       String? @db.Text
+  sortOrder   Int     @default(0)
+
+  // Self-referential nesting (statement → items → sub-items)
+  parentPartId String?
+  parentPart   ControlPart?  @relation("PartHierarchy", fields: [parentPartId], references: [id], onDelete: Cascade)
+  children     ControlPart[] @relation("PartHierarchy")
+
+  // Owning control
+  nistControlId String
+  nistControl   NistControl @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+
+  // Reverse relation for parameters that reference this part
+  parameters           ControlParameter[]
+  ztCoverages          ZTPartCoverage[]
+  assessmentObjectives AssessmentObjective[] // determinations that assess this lettered item
+  lineageTo            ControlLineage[] // withdrawn controls whose content went into this item
+
+  @@index([nistControlId])
+  @@index([parentPartId])
+}
+
+// ===== ASSESSMENT PROCEDURES (NIST SP 800-53A) =====
+//
+// Two tables, one row per statement, because the dimension is neither small nor closed: a control carries up to 38 determinations and a lettered item up to 13, and 108 controls have no test method. An objective attaches to its control always, and to the lettered part its source statement corresponds to when there is one; a null partId means "assesses the control's root statement", not unknown.
+
+enum AssessmentMethodKind {
+  EXAMINE // objects an assessor reviews: policies, records, configurations
+  INTERVIEW // people an assessor talks to
+  TEST // mechanisms and processes an assessor exercises
+}
+
+model AssessmentObjective {
+  id             String @id // Deterministic: "obj_ac-02a.01_r520", from the CPRT identifier
+  cprtIdentifier String // The publication's own identifier, e.g. "DS-AC-02a.[01]"
+  text           String @db.Text // The determination statement, ODP references rendered as [Assignment: ...] / [Selection: ...]
+  sortOrder      Int    @default(0) // Position within the control, in publication order
+
+  nistControlId String
+  nistControl   NistControl @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+
+  partId String?
+  part   ControlPart? @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@unique([cprtIdentifier, nistControlId])
+  @@index([nistControlId])
+  @@index([partId])
+}
+
+model AssessmentMethod {
+  id             String               @id // Deterministic: "method_ac-02_examine_r520"
+  cprtIdentifier String // e.g. "E-AC-02"
+  method         AssessmentMethodKind
+  text           String               @db.Text // The "[SELECT FROM: ...]" list, verbatim from the publication
+
+  nistControlId String
+  nistControl   NistControl @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+
+  @@unique([nistControlId, method]) // at most one entry of each kind per control
+  @@index([nistControlId])
+}
+
+// ===== CONTROL PARAMETERS (Baseline-Specific Values) =====
+
+model ControlParameter {
+  id            String  @id // Deterministic: "param_ac-2_smt.e_0_v52"
+  nistControlId String
+  partId        String? // Which ControlPart this parameter appears in
+  label         String // Descriptive lead-in derived from the preceding prose
+  position      Int     @default(0) // Ordinal position within the part's prose
+
+  // Relations
+  nistControl NistControl             @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+  part        ControlPart?            @relation(fields: [partId], references: [id], onDelete: Cascade)
+  values      ControlParameterValue[] // Per-baseline values, grouped (baselines[] -> value)
+
+  @@index([nistControlId])
+  @@index([partId])
+}
+
+// A single parameter value, tagged with the baseline(s) that share it (grouped/deduped).
+// Replaces the former one-column-per-baseline layout on ControlParameter: a value shared
+// across baselines is stored once with baselines = [LOW, MODERATE, HIGH]; an undefined
+// baseline simply has no row. Mirrors how ZTMappingAffinity normalized the ZT tuples.
+model ControlParameterValue {
+  id          String     @id // Deterministic: "paramval_<part>_<position>_<idx>_v52"
+  parameterId String
+  baselines   Baseline[] // e.g. [LOW, MODERATE, HIGH] — the baselines sharing this value
+  value       String     @db.Text
+
+  parameter ControlParameter @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+
+  @@index([parameterId])
+}
+
+// ===== ZTMM GUIDANCE (Normalized per pillar/function/maturity) =====
+
+model ZTMMGuidance {
+  id       String   @id // Deterministic: "<pillar-slug>.<function-slug>" e.g. "identity.authn-user"
+  pillar   ZTPillar
+  function String // Function display name — slugified into the id
+
+  // Group key a ZeroTrustMapping resolves against. For most rows this equals
+  // `function`; for multi-part functions (e.g. "Identity Stores" split into
+  // "Identity Stores-Developers/-APIs/-Users") every member row shares the base
+  // group ("Identity Stores"). The API aggregates all rows sharing (pillar,
+  // functionGroup) and concatenates them. NOT NULL by design — every row is
+  // explicit so a dropped/typo'd value fails loud, never silently degrades.
+  functionGroup String
+
+  // Columnar guidance: `base` is shared prose rendered for every maturity; the
+  // four maturity columns hold the level-specific sentence fragment. The UI/API
+  // renders `base` concatenated with the column matching the mapping's maturity.
+  base        String  @db.Text
+  traditional String? @db.Text
+  initial     String? @db.Text
+  advanced    String? @db.Text
+  optimal     String? @db.Text
+
+  createdById String
+  createdBy   User    @relation("ZTMMGuidanceCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("ZTMMGuidanceUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pillar, function])
+  // Resolution looks up by (pillar, functionGroup); this composite serves it.
+  // No standalone @@index([pillar]) — it's a redundant left-prefix of both this
+  // index and @@unique([pillar, function]).
+  @@index([pillar, functionGroup])
+}
+
+// ===== ZERO TRUST MAPPINGS =====
+
+model ZeroTrustMapping {
+  id            String @id @default(cuid())
+  nistControlId String @unique // One ZT mapping per control
+
+  // Core ZT classification (typed enums for data integrity)
+  // pillars is an array: the representative tuple's pillar first, then every other pillar the
+  // control's tuples name. CISA's mapping can place a control in several pillars;
+  // ZTMappingAffinity holds each tuple.
+  pillars       ZTPillar[]      @default([]) // Identity, Devices, Networks, Applications, Data, Cross-Cutting
+  function      String // Keep as string - many possible functions per pillar
+  maturityLevel ZTMaturityLevel // Traditional, Initial, Advanced, Optimal
+
+  // Guidance is resolved at read time (ZTMM natural key by (pillar, functionGroup), else the
+  // ZT_GUIDANCE_PENDING placeholder). No stored guidance column — the catalog's discussion lives once on
+  // NistControl.discussion. implementationGuidance + technicalControls were dropped (placeholder / all-null).
+
+  // Data source tracking
+  dataSourceId String?
+  dataSource   DataSource? @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+
+  // Audit trail
+  createdById String
+  createdBy   User    @relation("ZTMappingCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("ZTMappingUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  nistControl   NistControl         @relation("ControlToZTMapping", fields: [nistControlId], references: [id], onDelete: Cascade)
+  partCoverages ZTPartCoverage[]
+  affinities    ZTMappingAffinity[] // Per-tuple (pillar, function, maturity) breakout (Option B)
+
+  // GIN serves the array-contains filters (hasSome/has). The index was first built USING GIN by a
+  // hand-written migration while the schema declared a plain index, so migrate diff proposed
+  // replacing it with a B-tree; declaring the access method here keeps the two in step.
+  // Migration 20260609010000's comment still says Prisma cannot model the access method. That
+  // was true when it was written; the migration is left as it is because Prisma checksums it.
+  @@index([pillars], type: Gin)
+  @@index([maturityLevel])
+  @@index([dataSourceId])
+  @@index([pillars, maturityLevel]) // Composite for filtered queries
+}
+
+// ===== ZT MAPPING AFFINITY (per-tuple pillar/function/maturity) =====
+
+// One row per real (pillar, function, maturity) tuple a ZeroTrustMapping carries.
+// CISA's mapping can place a control or enhancement in several pillars or functions, so it
+// has several affinity rows. ZeroTrustMapping keeps a single
+// representative pillars[]/function/maturityLevel (for the layer-cake card and the
+// single-string endpoints); the modal resolves guidance PER tuple here via
+// (pillar, function) -> ZTMMGuidance.functionGroup. Mirrors ZTPartCoverage: a deterministic
+// seed id ("ztaff_<base>_<pillar>_<function>_<maturity>") plus @@unique + ON CONFLICT DO
+// NOTHING for idempotent re-seed. function is a String (like ZeroTrustMapping.function) —
+// it resolves against functionGroup, it is not a closed enum.
+model ZTMappingAffinity {
+  id           String          @id @default(cuid()) // Deterministic seed id (see comment above)
+  ztMappingId  String
+  pillar       ZTPillar
+  function     String // Resolves against ZTMMGuidance.functionGroup at read time
+  maturity     ZTMaturityLevel
+  // CISA's designation for the tuple, and whether CISA marks it If Applicable: the control
+  // applies only where it is relevant to the system's scope. A tuple folded from several
+  // rows takes the strongest designation, and is If Applicable only when every row is.
+  // A null designation is a tuple that does not come from CISA's mapping.
+  designation  ZTDesignation?
+  ifApplicable Boolean         @default(false)
+
+  ztMapping ZeroTrustMapping @relation(fields: [ztMappingId], references: [id], onDelete: Cascade)
+
+  @@unique([ztMappingId, pillar, function, maturity])
+  @@index([ztMappingId])
+}
+
+// ===== LINKS & RESOURCES =====
+
+model NistLink {
+  id            String  @id @default(cuid())
+  nistControlId String
+  title         String // Link Pretty Title
+  url           String
+  description   String? // The catalog's citation text for the resource
+  // What the link leads to, recorded by the reference-link pipeline's live check:
+  // where the URL ends up after redirects (a DOI stays a DOI in `url` and resolves
+  // here), and the media type the destination served. Nullable: absent until checked.
+  resolvedUrl   String?
+  contentType   String?
+  displayOrder  Int     @default(0) // For UI ordering
+
+  // Data source tracking
+  dataSourceId String?
+  dataSource   DataSource? @relation("NistLinkDataSource", fields: [dataSourceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  nistControl NistControl @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+
+  @@index([nistControlId, displayOrder]) // Composite index for sorted queries
+  @@index([dataSourceId])
+}
+
+// ===== REFERENCE LINKS =====
+
+// Reference docs by domain (where a document is published). Evolved from the former
+// per-ZT-mapping ZTLink: a doc is stored once (url @unique) and attached to any number of
+// controls via the NistControlLink junction, so the same doc isn't duplicated per control.
+model ReferenceLink {
+  id          String            @id @default(cuid())
+  url         String            @unique // each doc stored once; controls reference it via the junction
+  title       String // Link Pretty Title
+  description String?
+  domain      LinkDomain // WHERE the doc is published (see LinkDomain)
+  linkType    ReferenceLinkType @default(REFERENCE) // WHAT KIND: reference / tool / guidance / policy
+
+  // Data source tracking (provenance — which import produced this link; nullable)
+  dataSourceId String?
+  dataSource   DataSource? @relation("ReferenceLinkDataSource", fields: [dataSourceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  controls NistControlLink[]
+
+  @@index([dataSourceId])
+}
+
+// Junction: which controls reference a given ReferenceLink. displayOrder is per-control (was
+// ZTLink.displayOrder) so a shared doc can sort differently under different controls.
+model NistControlLink {
+  nistControlId String
+  linkId        String
+  displayOrder  Int    @default(0)
+
+  nistControl NistControl   @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+  link        ReferenceLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@id([nistControlId, linkId])
+  @@index([linkId])
+}
+
+// ===== ZT PART COVERAGE =====
+
+model ZTPartCoverage {
+  id          String @id @default(cuid())
+  ztMappingId String
+  partId      String
+
+  ztMapping ZeroTrustMapping @relation(fields: [ztMappingId], references: [id], onDelete: Cascade)
+  part      ControlPart      @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@unique([ztMappingId, partId])
+  @@index([partId])
+  @@index([ztMappingId])
+}
+
+// ===== DATA SOURCES =====
+
+model DataSource {
+  id             String         @id @default(cuid())
+  name           String         @unique // e.g., "nist-800-53 reference links"
+  type           String // "website", "document", "sharepoint"
+  url            String?
+  authorityLevel AuthorityLevel @default(reference)
+  lastCrawled    DateTime?
+  isActive       Boolean        @default(true)
+  description    String?        @db.Text
+
+  // Audit trail
+  createdById String
+  createdBy   User    @relation("DataSourceCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("DataSourceUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Reverse relations
+  nistLinks      NistLink[]         @relation("NistLinkDataSource")
+  referenceLinks ReferenceLink[]    @relation("ReferenceLinkDataSource")
+  ztMappings     ZeroTrustMapping[]
+
+  @@index([authorityLevel])
+  @@index([isActive])
+}
+
+// ===== EXTERNAL ENTITIES =====
+
+model ExternalEntity {
+  id          String     @id @default(cuid())
+  provider    String     @unique // Short code for the partner team or service
+  name        String // Full name: "Security Operations Team"
+  entityType  EntityType
+  description String?    @db.Text
+  contactInfo String?
+  websiteUrl  String?
+
+  // Audit trail
+  createdById String
+  createdBy   User    @relation("ExternalEntityCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("ExternalEntityUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  controlMappings NistControlExternalEntity[]
+
+  @@index([entityType])
+}
+
+// Junction table: which External Entities provide which controls
+model NistControlExternalEntity {
+  id               String  @id @default(cuid())
+  nistControlId    String
+  externalEntityId String
+  inheritanceType  String? // "Full Coverage", "Partial", "Tool Support", "Consultation"
+  coverageDetails  String? @db.Text // Detailed explanation of what entity provides
+  isRecommended    Boolean @default(false) // Highlight in UI as preferred option
+  notes            String? @db.Text
+
+  // Audit trail
+  createdById String
+  createdBy   User   @relation("ExternalEntityMappingCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  nistControl    NistControl    @relation(fields: [nistControlId], references: [id], onDelete: Cascade)
+  externalEntity ExternalEntity @relation(fields: [externalEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([nistControlId, externalEntityId])
+  @@index([nistControlId])
+  @@index([externalEntityId])
+  @@index([isRecommended])
+}
+
+// ===== T3 STACK EXAMPLE MODEL =====
+// Kept temporarily for existing tRPC router compatibility
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@index([name])
+}
+
+// ===== NEXTAUTH MODELS =====
+
+model Account {
+  id                       String  @id @default(cuid())
+  userId                   String
+  type                     String
+  provider                 String
+  providerAccountId        String
+  refresh_token            String? @db.Text
+  access_token             String? @db.Text
+  expires_at               Int?
+  token_type               String?
+  scope                    String?
+  id_token                 String? @db.Text
+  session_state            String?
+  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh_token_expires_in Int?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // T3 Stack example (temporary)
+  posts Post[]
+
+  // Audit trail reverse relations (for querying "all controls created by user X")
+  nistControlsCreated     NistControl[]               @relation("NistControlCreatedBy")
+  nistControlsUpdated     NistControl[]               @relation("NistControlUpdatedBy")
+  ztMappingsCreated       ZeroTrustMapping[]          @relation("ZTMappingCreatedBy")
+  ztMappingsUpdated       ZeroTrustMapping[]          @relation("ZTMappingUpdatedBy")
+  ztmmGuidanceCreated     ZTMMGuidance[]              @relation("ZTMMGuidanceCreatedBy")
+  ztmmGuidanceUpdated     ZTMMGuidance[]              @relation("ZTMMGuidanceUpdatedBy")
+  externalEntitiesCreated ExternalEntity[]            @relation("ExternalEntityCreatedBy")
+  externalEntitiesUpdated ExternalEntity[]            @relation("ExternalEntityUpdatedBy")
+  dataSourcesCreated      DataSource[]                @relation("DataSourceCreatedBy")
+  dataSourcesUpdated      DataSource[]                @relation("DataSourceUpdatedBy")
+  entityMappingsCreated   NistControlExternalEntity[] @relation("ExternalEntityMappingCreatedBy")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

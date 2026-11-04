@@ -1,0 +1,148 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+.vercel
+.netlify
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# Local env files
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+# tfvars: ignore all EXCEPT the committed per-env baselines (explicit allowlist).
+# Order matters — broad ignore first, then the specific re-includes (last match wins).
+# Personal/experimental overrides go in `*.auto.tfvars` (auto-loaded, stays local).
+*.tfvars
+!infra/environments/dev/terraform.tfvars
+!infra/environments/prod/terraform.tfvars
+# Backend config names an account's state bucket; each operator writes their own
+# from the committed *.hcl.example (lock files are .terraform.lock.hcl, unaffected).
+infra/bootstrap/backend-*.hcl
+infra/environments/*/backend.hcl
+# Lambda build artifacts (terraform-aws-modules/lambda emits zips here) + saved plans
+infra/environments/*/builds/
+*.tfplan
+tfplan.bin
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.history/
+
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Logs
+logs/
+*.log
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Python (if using Python in backend)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+
+# Temporary files
+tmp/
+temp/
+
+#Claude data directory
+.auto-claude/
+/temp/*
+CLAUDE.md
+.claude/
+AGENTS.md
+AGENTS.override.md
+
+# Conductor
+conductor/*
+tmp/
+# Generator staging artifacts (the source CSV, and the generated SQL reviewed before
+# being copied to seed-sql/). Only matches this dir — seed-sql/*.sql stays tracked.
+app/prisma/generators/zt-overlay/*.csv
+app/prisma/generators/zt-overlay/*.sql
+
+# Local-only git hooks. commit-msg and pre-push are personal guards; they are not part of the project's tooling contract and are deliberately not shared. pre-commit IS tracked — it runs lint-staged, typecheck and the seed URL gate, and every contributor needs it.
+.husky/commit-msg
+.husky/pre-push

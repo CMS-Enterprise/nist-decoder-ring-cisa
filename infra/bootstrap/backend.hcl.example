@@ -1,0 +1,7 @@
+# Copy to backend-<env>.hcl (gitignored) after the first apply. The values are
+# output "backend_config"; the bucket name carries the account ID and region.
+bucket       = "<name_prefix>-<env>-tfstate-<account_id>-<region>"
+key          = "bootstrap/terraform.tfstate"
+region       = "<region>"
+use_lockfile = true
+encrypt      = true

@@ -1,0 +1,107 @@
+services:
+  # PostgreSQL Database — shared by the container/debug app stacks and standalone (db-only).
+  db:
+    image: postgres:16.6-alpine3.19@sha256:f49e61f7e444917a1b30caf3c232a3b79544c3b8c0a3667bc9c1feacf530e350
+    container_name: zt-decoder-ring-db
+    restart: unless-stopped
+    profiles:
+      - container
+      - debug
+      - db-only
+    environment:
+      POSTGRES_USER: ztdecoder
+      POSTGRES_PASSWORD: ztdecoder_dev_password
+      POSTGRES_DB: ${DEV_DB_NAME:-zt_decoder_ring_standard}
+    ports:
+      - "5439:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ztdecoder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Next.js application — the HARDENED runner image (DHI base, NO shell). This is the exact
+  # artifact that ships to AWS ECS; running it locally via `make container-*` is
+  # "test what you ship". Migrations run separately (make db-ready / ecs-run-migrate),
+  # not on boot.
+  app:
+    profiles:
+      - container
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: runner
+    container_name: zt-decoder-ring-app
+    restart: unless-stopped
+    # Container family, 13XXX band: the app on 13000 (see the port bands in the Makefile).
+    ports:
+      - "${CONTAINER_APP_PORT:-13000}:3000"
+    environment:
+      DATABASE_URL: postgresql://ztdecoder:ztdecoder_dev_password@db:5432/${DEV_DB_NAME:-zt_decoder_ring_standard}
+      NODE_ENV: production
+      AUTH_SECRET: dev-secret-change-in-production
+      # The URL this container is reached at, so sign-in callbacks match it if turned on.
+      AUTH_URL: http://localhost:${CONTAINER_APP_PORT:-13000}
+      RUN_MIGRATIONS: "false"
+      # OIDC sign-in, passed through from the shell; empty means unset (docs/runbooks/auth-setup.md)
+      AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
+      AUTH_OIDC_ID: ${AUTH_OIDC_ID:-}
+      AUTH_OIDC_SECRET: ${AUTH_OIDC_SECRET:-}
+      AUTH_OIDC_NAME: ${AUTH_OIDC_NAME:-}
+      AUTH_SIGNIN_LINK: ${AUTH_SIGNIN_LINK:-}
+      AUTH_ALLOWED_EMAIL_DOMAINS: ${AUTH_ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_ALLOW_UNVERIFIED_EMAIL: ${AUTH_ALLOW_UNVERIFIED_EMAIL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Next.js application — LOCAL DEBUG ONLY. The dev-shell image (DHI dev base: has a shell,
+  # full devDependencies, hot reload). Opt-in via `make container-debug`; it is NEVER
+  # deployed — a shelled image must not reach an environment. Distinct name/port from the
+  # hardened runner above so the two never collide.
+  app-debug:
+    profiles:
+      - debug
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: development
+    container_name: zt-decoder-ring-app-debug
+    restart: unless-stopped
+    # Container family, 13XXX band: the debug slot on 13001.
+    ports:
+      - "${CONTAINER_DEBUG_PORT:-13001}:3000"
+    environment:
+      DATABASE_URL: postgresql://ztdecoder:ztdecoder_dev_password@db:5432/${DEV_DB_NAME:-zt_decoder_ring_standard}
+      NODE_ENV: development
+      AUTH_SECRET: dev-secret-change-in-production
+      AUTH_URL: http://localhost:${CONTAINER_DEBUG_PORT:-13001}
+      # OIDC sign-in, passed through from the shell; empty means unset (docs/runbooks/auth-setup.md)
+      AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
+      AUTH_OIDC_ID: ${AUTH_OIDC_ID:-}
+      AUTH_OIDC_SECRET: ${AUTH_OIDC_SECRET:-}
+      AUTH_OIDC_NAME: ${AUTH_OIDC_NAME:-}
+      AUTH_SIGNIN_LINK: ${AUTH_SIGNIN_LINK:-}
+      AUTH_ALLOWED_EMAIL_DOMAINS: ${AUTH_ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_ALLOW_UNVERIFIED_EMAIL: ${AUTH_ALLOW_UNVERIFIED_EMAIL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && yarn dev"
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+      # Shield .next: the container WORKDIR is /app, so its Turbopack cache bakes in /app
+      # paths. Without this, the bind mount writes that cache back to the host app/.next, and
+      # a later host `make dev` reads it, tries to write /app/.next (host root, read-only on
+      # macOS), and Turbopack panics. Keep each environment's build cache its own.
+      - /app/.next
+
+volumes:
+  # Named, so every worktree uses this one volume whichever starts the container;
+  # each checkout keeps its own database inside it (DEV_DB_NAME).
+  postgres_data:
+    name: zt-decoder-ring-dev-postgres
+    driver: local

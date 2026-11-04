@@ -1,0 +1,2 @@
+# Yarn's committed release is minified JavaScript: no text diffs or merges.
+/.yarn/releases/** binary linguist-vendored

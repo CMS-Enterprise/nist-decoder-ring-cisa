@@ -1,0 +1,42 @@
+kind,control_id,source_rows,detail
+control named two ways,CM-02,170;171;172;173;174,"""Baseline Configuration"" vs ""Baseline configuration"""
+control named two ways,SI-02,546;547;548;549,"""Flaw Remediation"" vs ""Flaw remediation"""
+duplicate row,AC-02,35;36,2 rows map IDENTITY Access Management at TRADITIONAL
+duplicate row,SC-28,480;481,2 rows map DATA Encryption at TRADITIONAL
+duplicate row,SC-08,525;526,2 rows map DATA Encryption at TRADITIONAL
+"duplicate row, designations disagree",AC-06,82;83,"2 rows map IDENTITY Access Management at TRADITIONAL, designated Supporting and Key"
+function code not found,IA-02,276,"""Accessible Applications "" is not spelled as in the function-code table, so its Function Duplicate ID has no code: IA-2_FUN_"
+function outside the sheet's own list,CM-08,210,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,CM-08(01),219,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,CM-08(02),225,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,CM-08(03),231,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,CM-08(06),238,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,CM-09,249,"""Automation and Orchestration"" is not one of the function names in the sheet's code table; read as Application Automation and Orchestration"
+function outside the sheet's own list,IR-04,317,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,IR-04(13),318,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,RA-10,359,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,RA-03,365,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,RA-03(03),374,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,RA-03(04),375,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function outside the sheet's own list,SI-07(17),625,"""Application Threat Protections"" is not one of the function names in the sheet's code table; read as Application Threat Protection"
+function spelling,AC-17,13,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(01),19,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(10),20,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(02),21,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(03),23,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(04),25,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(06),27,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-17(09),28,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-20,48,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-20(01),52,"""Accessible Applications "" carries extra whitespace"
+function spelling,AC-20(03),53,"""Accessible Applications "" carries extra whitespace"
+function spelling,IA-02,276,"""Accessible Applications "" carries extra whitespace"
+function spelling,IA-09,314,"""Accessible Applications "" carries extra whitespace"
+function spelling,SC-07,501,"""Accessible Applications "" carries extra whitespace"
+function spelling,SC-07(28),514,"""Accessible Applications "" carries extra whitespace"
+function spelling,SC-07(04),517,"""Accessible Applications "" carries extra whitespace"
+function spelling,SC-08,522,"""Accessible Applications "" carries extra whitespace"
+hand-entered column disagrees,SC-12(02),458,"""Appears in Multiple Pillars"" is ""-"", but the control appears on 2 rows"
+one function at two maturities,CA-07(04),148;149,DATA Data Visibility and Analytics at TRADITIONAL and INITIAL
+one function at two maturities,RA-03,370;371,DATA Data Visibility and Analytics at TRADITIONAL and INITIAL
+one function at two maturities,SC-05(03),497;498,NETWORKS Resilience at TRADITIONAL and ADVANCED

@@ -1,0 +1,72 @@
+# Dependencies
+node_modules
+app/node_modules
+**/node_modules
+
+# Build outputs
+.next
+app/.next
+**/.next
+dist/
+out/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS and tool caches, at any depth: a bare `.DS_Store` matches only the context root.
+**/.DS_Store
+**/Thumbs.db
+**/__pycache__
+**/.pytest_cache
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files (use docker-compose env or ECS entrypoint instead).
+# .env files contain local dev secrets (localhost DB URL, auth secrets,
+# etc.) and must never be baked into the prod image.
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+
+# Test coverage
+coverage
+.vitest/
+
+# Terraform
+infra/.terraform
+infra/*.tfstate*
+
+# Yarn's per-checkout state. The image needs only the release under
+# app/.yarn/releases, which the Dockerfile copies.
+**/.yarn/install-state.gz
+**/.yarn/cache
+**/.yarn/unplugged
+**/.yarn/build-state.yml
+
+# CI/CD
+.github/
+.husky/
+
+# Docker files (not needed in context)
+docker-compose*.yml
+
+# Makefile (not needed in container)
+Makefile
+
+# Documentation (except README)
+docs/
+*.md
+!README.md

@@ -1,0 +1,192 @@
+# Standard's gates, as a workflow a fork can enable.
+#
+# This repository runs no CI of its own. Every gate below runs from a `make`
+# target, so it runs the same way on a laptop as in a pipeline. To run them in
+# your own CI:
+#
+#   1. Copy this file to .github/workflows/gates.yml.
+#   2. Uncomment everything below the line of dashes.
+#   3. Set `runs-on` to runners your organisation allows. The image is built for
+#      linux/arm64, so the build and container jobs want an ARM runner, or QEMU
+#      on an x86 one.
+#   4. For the build and container jobs, add DHI_USERNAME and DHI_PASSWORD
+#      secrets: the base images come from dhi.io, which needs a login.
+#
+# What each gate proves:
+#   Code
+#     make ci-check         ESLint and the TypeScript compiler with no errors, every committed
+#                           image tag a version this repository has cut, and every URL in the
+#                           committed seed SQL well formed.
+#     make ci-test          The unit tests, with the coverage floor. They include the
+#                           catalog-boundary tests (the server refuses to serve another
+#                           catalog's vocabulary) and the vocabulary gate over everything
+#                           the repository ships, tests and comments included, plus the
+#                           pytest suites for the Python checkers and the shell scripts.
+#     make db-seed-check    The seed checks, run against the seed SQL actually committed.
+#                           ci-test and db-seed-check between them cover every test area
+#                           in docs/testing.md, so make test-matrix needs no job of its own.
+#   Build
+#     make container-build  The runner image builds, and `next build` with it, so a
+#                           production-build break fails here.
+#   Container
+#     make container-verify The image carries every file the runtime needs.
+#     make container-scan   No HIGH or CRITICAL CVE with a fix available in the image.
+#     make refresh-image-digests, then an unchanged Dockerfile
+#                           The pinned base images are the digests their tags point at
+#                           today. Why: docs/scripts/refresh-image-digests.md.
+#     make check-rds-bundle The Dockerfile's RDS CA bundle pin matches the bundle AWS
+#                           serves today. Why: docs/scripts/check-rds-bundle.md. The
+#                           image pins the bundle by checksum, and AWS republishes it
+#                           when it adds a Region, after which every image build fails.
+#
+# The base-image and RDS bundle gates check things that change upstream, not in
+# this repository, so the workflow also runs weekly; the other jobs skip that run.
+#
+# Actions are pinned to full commit SHAs; keep them pinned when you update them.
+# ------------------------------------------------------------------------------
+# name: Gates
+#
+# on:
+#   pull_request:
+#   push:
+#     branches: [main]
+#   schedule:
+#     - cron: "17 13 * * 1" # Mondays 13:17 UTC
+#   workflow_dispatch:
+#
+# concurrency:
+#   group: gates-${{ github.ref }}
+#   cancel-in-progress: true
+#
+# permissions:
+#   contents: read
+#
+# jobs:
+#   # --- Code ---
+#
+#   lint-and-typecheck:
+#     name: Lint & Typecheck
+#     if: github.event_name != 'schedule'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+#         with:
+#           node-version-file: ".nvmrc"
+#           cache: "yarn"
+#           cache-dependency-path: "app/yarn.lock"
+#       - name: Install dependencies
+#         run: make ci-install
+#       - name: Lint, typecheck, image tags and seed URLs
+#         run: make ci-check
+#
+#   test:
+#     name: Test
+#     if: github.event_name != 'schedule'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+#         with:
+#           node-version-file: ".nvmrc"
+#           cache: "yarn"
+#           cache-dependency-path: "app/yarn.lock"
+#       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+#         with:
+#           python-version: "3.13"
+#       - name: Install dependencies
+#         run: make ci-install
+#       - name: Install Python test dependencies
+#         run: make ci-install-python
+#       - name: Unit tests, boundary and vocabulary gates
+#         run: make ci-test
+#       - name: Seed checks against the committed seed SQL
+#         run: make db-seed-check
+#
+#   # --- Build ---
+#
+#   build:
+#     name: Build
+#     if: github.event_name != 'schedule'
+#     runs-on: ubuntu-24.04-arm
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+#         with:
+#           registry: dhi.io
+#           username: ${{ secrets.DHI_USERNAME }}
+#           password: ${{ secrets.DHI_PASSWORD }}
+#       - name: Build the runner image
+#         run: make container-build
+#
+#   # --- Container ---
+#
+#   container-verify:
+#     name: Runtime files
+#     if: github.event_name != 'schedule'
+#     runs-on: ubuntu-24.04-arm
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+#         with:
+#           registry: dhi.io
+#           username: ${{ secrets.DHI_USERNAME }}
+#           password: ${{ secrets.DHI_PASSWORD }}
+#       - name: Verify the image's runtime files
+#         run: make container-verify
+#
+#   container-scan:
+#     name: CVE scan
+#     if: github.event_name != 'schedule'
+#     runs-on: ubuntu-24.04-arm
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+#         with:
+#           registry: dhi.io
+#           username: ${{ secrets.DHI_USERNAME }}
+#           password: ${{ secrets.DHI_PASSWORD }}
+#       - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+#       - name: Scan the image for HIGH and CRITICAL CVEs
+#         run: make container-scan
+#
+#   base-image-current:
+#     name: Base images current
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+#         with:
+#           registry: dhi.io
+#           username: ${{ secrets.DHI_USERNAME }}
+#           password: ${{ secrets.DHI_PASSWORD }}
+#       # refresh-image-digests rewrites a pin whose tag has moved; a changed Dockerfile
+#       # means the build is on an older digest than its tag names today.
+#       - name: Check the base image pins
+#         run: |
+#           make refresh-image-digests
+#           git diff --exit-code -- Dockerfile
+#
+#   rds-bundle:
+#     name: RDS CA bundle pin
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       # Network only: no Docker and no login. Why it exists, and how to move the pin
+#       # when it fails: docs/scripts/check-rds-bundle.md.
+#       - name: Compare the pin with the bundle AWS serves
+#         run: make check-rds-bundle

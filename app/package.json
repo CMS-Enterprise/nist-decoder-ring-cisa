@@ -1,0 +1,139 @@
+{
+  "name": "zt-decoder-ring",
+  "version": "0.1.14",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "next build",
+    "check": "eslint . && tsc --noEmit",
+    "db:generate": "prisma migrate dev",
+    "db:migrate": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "dev": "next dev --turbo",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
+    "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "postinstall": "prisma generate && (cd .. && husky || true)",
+    "preview": "next build && next start",
+    "release": "commit-and-tag-version",
+    "release:dry-run": "commit-and-tag-version --dry-run",
+    "release:major": "commit-and-tag-version --release-as major",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:patch": "commit-and-tag-version --release-as patch",
+    "seed:generate": "tsx prisma/generators/catalog/generate-seed.ts",
+    "zt:generate": "tsx prisma/generators/zt-overlay/generate.ts",
+    "zt:transform": "tsx prisma/generators/zt-overlay/transform.ts",
+    "start": "next start",
+    "test": "vitest --project unit",
+    "test:coverage": "vitest run --coverage --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:run": "vitest run --project unit",
+    "test:ui": "vitest --ui --project unit",
+    "test:all": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@aws-sdk/client-secrets-manager": "^3.1161.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "@t3-oss/env-nextjs": "^0.13.11",
+    "@tanstack/react-query": "^5.105.0",
+    "@trpc/client": "^11.22.1",
+    "@trpc/react-query": "^11.22.1",
+    "@trpc/server": "^11.22.1",
+    "dotenv": "^18.0.9",
+    "fflate": "0.8.3",
+    "lucide-react": "^1.66.0",
+    "next": "^16.3.8",
+    "next-auth": "5.0.0-beta.32",
+    "nuqs": "^2.10.2",
+    "pg": "^8.23.0",
+    "prisma": "^7.10.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-zoom-pan-pinch": "^4.2.0",
+    "server-only": "^0.0.1",
+    "superjson": "^2.2.6",
+    "tsx": "^4.23.13",
+    "write-excel-file": "^4.1.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@testcontainers/postgresql": "^12.1.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.6",
+    "@types/oidc-provider": "^9.13.1",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/ui": "^5.0.5",
+    "commit-and-tag-version": "^13.2.1",
+    "eslint": "^10.14.0",
+    "eslint-config-next": "^16.3.5",
+    "fast-xml-parser": "5.11.2",
+    "husky": "^9.1.7",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.5.1",
+    "oidc-provider": "^9.13.3",
+    "postcss": "^8.5.32",
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "ct3aMetadata": {
+    "initVersion": "7.40.0"
+  },
+  "packageManager": "yarn@4.18.1+sha512.b2e1e7524f654f2749d32b4ebcb4622473cb5bcbc485df2007e12a154e50162a4d795526768bc5f5b8f81717bfd79deb2472813d86fb5ae2eb551fa9c872b08f",
+  "dependenciesMeta": {
+    "@prisma/engines": {
+      "built": true
+    },
+    "cpu-features": {
+      "built": false
+    },
+    "esbuild": {
+      "built": false
+    },
+    "prisma": {
+      "built": true
+    },
+    "protobufjs": {
+      "built": false
+    },
+    "ssh2": {
+      "built": false
+    },
+    "unrs-resolver": {
+      "built": false
+    }
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,jsx,json,md,mdx,css}": [
+      "prettier --write"
+    ]
+  },
+  "resolutions": {
+    "postcss": "^8.5.32"
+  }
+}

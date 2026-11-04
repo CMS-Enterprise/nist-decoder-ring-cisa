@@ -1,0 +1,18 @@
+# Pinned upstream inputs. Byte-identity IS the provenance here: SOURCE.md records
+# the git blob SHA-1 of every file so a reader can prove what was ingested without
+# trusting a filename. Reformatting one does not just churn a diff — it makes that
+# record a lie, and it silently inflated the minified catalog from 4.9 MB to 9.5 MB
+# the first time lint-staged ran over it.
+prisma/sources/nist-800-53/
+
+# Generated seed SQL is produced by the generators and verified by regeneration.
+# It is regenerated, never hand-formatted.
+prisma/seed-sql/
+
+# The reference-link pipeline's data (live results and overrides, CSV) and its
+# generated reports (registry CSV, redirect report Markdown). Regenerated or
+# hand-maintained as data, never hand-formatted.
+prisma/sources/reference-links/
+prisma/reports/reference-links/
+prisma/sources/reference-links/
+prisma/reports/reference-links/

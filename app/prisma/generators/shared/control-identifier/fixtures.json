@@ -1,0 +1,214 @@
+{
+  "comment": "The contract for the identifier rule. The test suite runs every case here, so a change to the rule has to change a fixture.",
+  "canonical": [
+    {
+      "raw": "AC-01",
+      "controlNumber": "AC-01",
+      "family": "AC",
+      "base": 1,
+      "enhancement": null,
+      "letter": null
+    },
+    {
+      "raw": "AC-1",
+      "controlNumber": "AC-01",
+      "family": "AC",
+      "base": 1,
+      "enhancement": null,
+      "letter": null
+    },
+    {
+      "raw": "ac-1",
+      "controlNumber": "AC-01",
+      "family": "AC",
+      "base": 1,
+      "enhancement": null,
+      "letter": null
+    },
+    {
+      "raw": "  AC-1  ",
+      "controlNumber": "AC-01",
+      "family": "AC",
+      "base": 1,
+      "enhancement": null,
+      "letter": null
+    },
+    {
+      "raw": "AC-02(01)",
+      "controlNumber": "AC-02(01)",
+      "family": "AC",
+      "base": 2,
+      "enhancement": 1,
+      "letter": null
+    },
+    {
+      "raw": "AC-2(1)",
+      "controlNumber": "AC-02(01)",
+      "family": "AC",
+      "base": 2,
+      "enhancement": 1,
+      "letter": null
+    },
+    {
+      "raw": "ac-2(3)",
+      "controlNumber": "AC-02(03)",
+      "family": "AC",
+      "base": 2,
+      "enhancement": 3,
+      "letter": null
+    },
+    {
+      "raw": "AC-2(12)",
+      "controlNumber": "AC-02(12)",
+      "family": "AC",
+      "base": 2,
+      "enhancement": 12,
+      "letter": null
+    },
+    {
+      "raw": "SC-07(22)",
+      "controlNumber": "SC-07(22)",
+      "family": "SC",
+      "base": 7,
+      "enhancement": 22,
+      "letter": null
+    },
+    {
+      "raw": "AU-05a",
+      "controlNumber": "AU-05",
+      "family": "AU",
+      "base": 5,
+      "enhancement": null,
+      "letter": "a"
+    },
+    {
+      "raw": "AU-5A",
+      "controlNumber": "AU-05",
+      "family": "AU",
+      "base": 5,
+      "enhancement": null,
+      "letter": "a"
+    },
+    {
+      "raw": "AU-05(02)a",
+      "controlNumber": "AU-05(02)",
+      "family": "AU",
+      "base": 5,
+      "enhancement": 2,
+      "letter": "a"
+    },
+    {
+      "raw": "PM-11",
+      "controlNumber": "PM-11",
+      "family": "PM",
+      "base": 11,
+      "enhancement": null,
+      "letter": null
+    },
+    {
+      "raw": "MA-04(04)",
+      "controlNumber": "MA-04(04)",
+      "family": "MA",
+      "base": 4,
+      "enhancement": 4,
+      "letter": null
+    },
+    {
+      "raw": "SR-04(04)",
+      "controlNumber": "SR-04(04)",
+      "family": "SR",
+      "base": 4,
+      "enhancement": 4,
+      "letter": null
+    }
+  ],
+  "rejected": [
+    {
+      "raw": "AB01(01)",
+      "why": "no hyphen between family and base, and not declared"
+    },
+    {
+      "raw": "AC",
+      "why": "family with no base number"
+    },
+    {
+      "raw": "AC-",
+      "why": "hyphen with no base number"
+    },
+    {
+      "raw": "A-01",
+      "why": "single-letter family"
+    },
+    {
+      "raw": "ABC-01",
+      "why": "three-letter family"
+    },
+    {
+      "raw": "AC-01()",
+      "why": "empty enhancement"
+    },
+    {
+      "raw": "AC-01(a)",
+      "why": "non-numeric enhancement"
+    },
+    {
+      "raw": "AC-01(01",
+      "why": "unclosed enhancement"
+    },
+    {
+      "raw": "AC 01",
+      "why": "space instead of hyphen"
+    },
+    {
+      "raw": "AC-01(01)ab",
+      "why": "multi-character part letter"
+    },
+    {
+      "raw": "",
+      "why": "empty string"
+    },
+    {
+      "raw": "   ",
+      "why": "whitespace only"
+    },
+    {
+      "raw": "MA04(04)",
+      "why": "no hyphen between family and base; corrected at source so no longer declared"
+    },
+    {
+      "raw": "SR04(04)",
+      "why": "no hyphen between family and base; corrected at source so no longer declared"
+    },
+    {
+      "raw": "AC-\u0660\u0661",
+      "why": "Arabic-Indic digits. Python's \\d matches any Unicode decimal digit and JavaScript's does not, so this canonicalised to AC-01 in one implementation and threw in the other. Python now pins [0-9]; JavaScript's \\d is already ASCII-only, so the TypeScript half needed no change to agree. This is the only non-ASCII fixture and it exists solely to hold that agreement."
+    }
+  ],
+  "seedIds": [
+    {
+      "controlNumber": "AC-01",
+      "token": "v52",
+      "seedId": "ctrl_ac-01_v52"
+    },
+    {
+      "controlNumber": "AC-02(01)",
+      "token": "v52",
+      "seedId": "ctrl_ac-02_01__v52"
+    },
+    {
+      "controlNumber": "MA-04(04)",
+      "token": "v52",
+      "seedId": "ctrl_ma-04_04__v52"
+    },
+    {
+      "controlNumber": "AC-01",
+      "token": "r520",
+      "seedId": "ctrl_ac-01_r520"
+    },
+    {
+      "controlNumber": "AC-02(01)",
+      "token": "r520",
+      "seedId": "ctrl_ac-02_01__r520"
+    }
+  ]
+}

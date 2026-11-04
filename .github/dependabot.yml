@@ -1,0 +1,246 @@
+# .github/dependabot.yml
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Cadence: npm / docker / github-actions run on a ~biweekly cron (the 1st and
+# 15th at 08:00 America/New_York) so bump PRs land in two batches a month
+# instead of weekly. Terraform runs monthly (see its block for why).
+# Grouping: per ecosystem, minor/patch bumps batch into one PR and major
+# bumps land separately (see each `groups:` block). Security updates are
+# NEVER grouped by Dependabot and arrive as their own PRs — that's intentional.
+version: 2
+
+# ─── Registry credentials: placeholder, not implemented ──────────────────
+# dhi.io requires a login and this repository holds no credential for it, so
+# the Dockerfile's dhi.io digests are a manual update: `docker login dhi.io`
+# with DHI login credentials, then `make refresh-image-digests`. A fork with its
+# own dhi.io access can hand that to Dependabot: store an access token as the
+# Dependabot secrets DHI_USERNAME and DHI_PASSWORD (the names the commented
+# gates in .github/workflows-export/gates.yml expect), then uncomment this
+# block and the `registries:` lines in the docker entry below.
+#
+# registries:
+#   dhi:
+#     type: docker-registry
+#     url: https://dhi.io
+#     username: ${{secrets.DHI_USERNAME}}
+#     password: ${{secrets.DHI_PASSWORD}}
+
+updates:
+  # ─── App: Next.js / tRPC / Prisma ────────────────────────────────────────
+  # package.json lives at app/, not /
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: cron
+      cronjob: "0 8 1,15 * *"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - lang/typescript
+      - lang/javascript
+    commit-message:
+      prefix: build
+      prefix-development: chore
+      include: scope
+    groups:
+      # Minor + patch bumps batch into one low-risk PR per ecosystem.
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Major bumps land in their own PR per ecosystem so breaking changes
+      # (e.g. eslint 9→10) are evaluated and migrated deliberately instead of
+      # riding along with safe bumps and blocking the batch.
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    ignore:
+      # typescript 7 is held until its plugin chain catches up. tsc 7.0.2
+      # typechecks this repo clean, but eslint aborts at startup with
+      # "typescript-eslint does not support TS 7.0", because typescript-eslint
+      # reads the TS 6 compiler API. Upstream tracks this in
+      # typescript-eslint#10940. The code is ready; the tooling is not.
+      # Remove this entry once typescript-eslint ships TS 7 support.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+
+  # ─── Container image (Dockerfile) ────────────────────────────────────────
+  # The Dockerfile's base images come from dhi.io. Moving their pinned digests
+  # is a manual update today and needs DHI login credentials: `docker login
+  # dhi.io`, then `make refresh-image-digests` (docs/scripts/refresh-image-digests.md).
+  # This entry cannot see dhi.io tags until the placeholder registry at the top
+  # of this file is implemented.
+  - package-ecosystem: docker
+    directory: /
+    # Placeholder, not implemented: uncomment with the dhi registry above.
+    # registries:
+    #   - dhi
+    schedule:
+      interval: cron
+      cronjob: "0 8 1,15 * *"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - area/ci-cd
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # Minor + patch bumps batch into one low-risk PR per ecosystem.
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Major bumps land in their own PR per ecosystem so breaking changes
+      # (e.g. eslint 9→10) are evaluated and migrated deliberately instead of
+      # riding along with safe bumps and blocking the batch.
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # docker-compose.yml's local Postgres image is public on Docker Hub, so this
+  # entry needs no credential. Majors are held: local should run the same
+  # Postgres major as the RDS instance (16), which moves deliberately.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 8 1,15 * *"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - area/ci-cd
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      - dependency-name: "postgres"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ─── Terraform (infra) ───────────────────────────────────────────────────
+  # `directories:` (plural) covers every stack + module in one entry. When a
+  # new module dir is added under infra/modules/, add it here too.
+  - package-ecosystem: terraform
+    directories:
+      - /infra/bootstrap
+      - /infra/environments/dev
+      - /infra/environments/prod
+      - /infra/modules/compute
+      - /infra/modules/database
+      - /infra/modules/kms
+      - /infra/modules/networking
+      - /infra/modules/secrets
+      - /infra/modules/security
+    # Monthly (not weekly) for Terraform: the hashicorp/aws provider ships a
+    # minor most weeks, so a weekly run opened a PR per minor. A monthly run
+    # jumps straight to the latest, folding the ~3-5 minors released that month
+    # into one PR — a time-batched approximation of "bump every few minors".
+    schedule:
+      interval: monthly
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - area/infra
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # Minor + patch bumps batch into one low-risk PR per ecosystem.
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Major bumps land in their own PR per ecosystem so breaking changes
+      # (e.g. eslint 9→10) are evaluated and migrated deliberately instead of
+      # riding along with safe bumps and blocking the batch.
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # ─── GitHub Actions (workflows) ──────────────────────────────────────────
+  # ─── CI Python tools ─────────────────────────────────────────────────────
+  # requirements-ci.txt is a hash-locked compile of requirements-ci.in;
+  # `make ci-test-python` installs it with --require-hashes. Dependabot updates the pins and hashes.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 8 1,15 * *"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - lang/python
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # Repo policy: actions are SHA-pinned with `# vX.Y` trailing comments.
+  # Dependabot updates both the SHA and the comment when the tag moves.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 8 1,15 * *"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - area/ci-cd
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # Minor + patch bumps batch into one low-risk PR per ecosystem.
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Major bumps land in their own PR per ecosystem so breaking changes
+      # (e.g. eslint 9→10) are evaluated and migrated deliberately instead of
+      # riding along with safe bumps and blocking the batch.
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"

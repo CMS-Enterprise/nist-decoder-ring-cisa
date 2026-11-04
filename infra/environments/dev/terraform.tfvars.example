@@ -1,0 +1,82 @@
+# ZT Decoder Ring — dev environment inputs
+#
+# Every input this stack takes, with its meaning. The committed
+# terraform.tfvars carries the account-independent values; put the rest in a
+# gitignored dev.auto.tfvars (auto-loaded, and it overrides terraform.tfvars).
+# TF_VAR_<name> has the lowest precedence, so it only reaches an input that
+# terraform.tfvars does not set; to change a committed value such as waf_mode,
+# enable_https_listener or container_image_tag, use dev.auto.tfvars.
+
+region      = "us-east-1"
+environment = "dev"
+
+# --- Bucket naming ---
+# Bucket names are <name_prefix>-<env>-<purpose>-<account_id>-<region>, so no
+# other account can collide with them. Two instances in one account and region
+# need different prefixes. Must match infra/bootstrap's name_prefix.
+name_prefix = "ztdr"
+
+# --- Network: an existing VPC this stack deploys into (prompted if unset) ---
+# Subnets are found by Name tag: <subnet_name_prefix>-{public,private,data}-*,
+# at least two of each. Public hosts the ALB, private the tasks, data the DB.
+vpc_id             = "vpc-0123456789abcdef0"
+subnet_name_prefix = "decoder-ring-dev"
+
+# --- Hostname and TLS (app_fqdn is prompted if unset) ---
+# A hostname in a DNS zone you control gets an ACM certificate and HTTPS with
+# the FIPS post-quantum hybrid policy (ELBSecurityPolicy-TLS13-1-2-Res-FIPS-PQ-2025-09).
+# It is the app's only address; HTTP 80 only ever redirects to HTTPS.
+#
+#   1. Apply with app_fqdn set and enable_https_listener = false.
+#   2. Publish the records in output "launch" (dns_records).
+#   3. When the certificate is ISSUED, set enable_https_listener = true and
+#      apply again: HTTPS on 443, and the app starts.
+app_fqdn              = "decoderring.example.gov"
+enable_https_listener = false
+# subject_alternative_names = ["www.decoderring.example.gov"]
+
+# --- Ingress Web ACL ---
+# public    (default): allow by default; block outside the allowed countries,
+#           rate-limit each IP, run the AWS managed Common, Known Bad Inputs,
+#           SQL injection and IP Reputation rule groups.
+# allowlist: the same rules, then only waf_allow_cidrs get through.
+# none     : no Web ACL.
+waf_mode = "public"
+# waf_allowed_country_codes = ["US", "PR", "GU", "VI", "AS", "MP", "UM"]  # default
+# waf_rate_limit            = 2000                                         # per IP per 5 minutes
+# waf_export_rate_limit     = 100                                          # /api/export, per IP per 5 minutes
+# waf_count_rate_limit      = 1000                                         # export page's count, per IP per 5 minutes
+# waf_allow_cidrs           = ["192.0.2.0/24"]                             # allowlist mode only
+
+# --- Sign-in (OIDC), off unless oidc_issuer is set ---
+# Register a client at your issuer with the redirect URI that output launch.sign_in
+# prints (<url>/api/auth/callback/oidc). Terraform creates the client-secret entry but
+# never holds its value: after the apply, store it with the command launch.sign_in gives.
+# oidc_issuer                 = "https://login.example.gov/realms/agency"
+# oidc_client_id              = "decoder-ring"
+# oidc_display_name           = "Agency SSO"
+# oidc_signin_link            = true
+# oidc_allowed_email_domains  = ["agency.gov"]
+# oidc_allow_unverified_email = false
+
+# --- Logging ---
+# ALB access logs to S3 bucket <name_prefix>-dev-alb-logs-<account_id>-<region> (SSE-S3, 90-day expiry).
+enable_alb_access_logs = true
+
+# --- Application ---
+# Image tag the ECS service runs. ECR tags are immutable: bump in lockstep
+# with each push.
+container_image_tag = "v0.1.0"
+
+# Bump to rotate AUTH_SECRET and redeploy (e.g. "1" -> "2"). Leave unset to
+# keep the current value.
+# auth_secret_rotation_version = "1"
+
+# Redeploy the service automatically after the RDS master secret rotates.
+enable_rotation_auto_redeploy = true
+
+# --- Alerts ---
+# Each address gets an AWS confirmation email on first apply.
+alarm_email_endpoints = [
+  # "oncall@example.gov",
+]
