@@ -39,7 +39,7 @@ export { withBaseLinks };
 
 function EnhancementChip() {
   return (
-    <span className="inline-flex h-4 shrink-0 items-center rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800">
+    <span className="bg-warning-subtle text-warning inline-flex h-4 shrink-0 items-center rounded px-1 text-[10px] font-semibold">
       {product.enhancementSpecificChip}
     </span>
   );
@@ -56,7 +56,7 @@ function LinkAnchor({ link }: { link: RenderedLink }) {
       href={link.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex items-start gap-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+      className="group text-accent hover:text-accent-strong flex items-start gap-2 text-sm font-medium"
     >
       <ExternalLink
         size={14}
@@ -68,13 +68,13 @@ function LinkAnchor({ link }: { link: RenderedLink }) {
           {link.scope === "enhancement" && <EnhancementChip />}
         </span>
         {link.descriptor && (
-          <span className="block text-xs font-normal text-slate-500">
+          <span className="text-ink-muted block text-xs font-normal">
             {link.descriptor}
           </span>
         )}
         {link.citation && (
           <span
-            className="line-clamp-2 block text-xs font-normal text-slate-400"
+            className="text-ink-muted line-clamp-2 block text-xs font-normal"
             title={link.citation}
           >
             {link.citation}
@@ -174,14 +174,14 @@ function HostContainer({
   return (
     <details
       open={open}
-      className="group/host rounded-lg border border-slate-200 bg-white"
+      className="group/host border-border bg-surface rounded-lg border"
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+      <summary className="text-ink-muted hover:bg-surface-canvas flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold">
         <span className="flex min-w-0 items-center gap-1.5">
           <ChevronRight
             size={14}
             aria-hidden="true"
-            className="shrink-0 text-slate-400 transition-transform group-open/host:rotate-90"
+            className="text-ink-muted shrink-0 transition-transform group-open/host:rotate-90"
           />
           <span className="min-w-0">
             {containerHeader(group, onEnhancement)}
@@ -229,12 +229,12 @@ export function ReferenceLinks({
   const groups = groupByHost(given);
   return (
     <div className="mt-5">
-      <h4 className="mb-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase">
+      <h4 className="text-ink-muted mb-3 flex items-center gap-1.5 text-xs font-bold uppercase">
         <span>References</span>
         {explainer && <InfoToggle info={explainer} />}
       </h4>
       {groups.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">{emptyMessage}</p>
+        <p className="text-ink-muted text-sm italic">{emptyMessage}</p>
       ) : (
         <div className="space-y-2">
           {groups.map((group) => (

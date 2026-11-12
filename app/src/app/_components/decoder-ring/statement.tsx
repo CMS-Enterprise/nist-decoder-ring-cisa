@@ -103,7 +103,7 @@ export const RAW_BASELINE_BADGE: BaselineBadgeRenderer = (baseline) => {
   return (
     <span
       title={label}
-      className="inline-flex h-5 shrink-0 cursor-default items-center justify-center rounded bg-slate-100 px-1 text-[9px] font-bold text-slate-700"
+      className="bg-surface-muted text-ink inline-flex h-5 shrink-0 cursor-default items-center justify-center rounded px-1 text-[9px] font-bold"
     >
       {label}
     </span>
@@ -171,7 +171,7 @@ function StructuredParameterBadges({
             <div key={i} className="ml-6 flex items-start gap-1.5 py-0.5">
               <span className="mt-px w-5 shrink-0" />
               <BaselineRow baselines={group.baselines} render={render} />
-              <span className="ml-1 text-slate-600">{group.value}</span>
+              <span className="text-ink-muted ml-1">{group.value}</span>
             </div>
           ))}
         </div>
@@ -205,7 +205,7 @@ function ProseBlock({
         if (numMatch) {
           return (
             <div key={i} className="ml-4 flex items-start gap-2 pt-1">
-              <span className="mt-px shrink-0 font-mono text-xs font-semibold text-slate-400">
+              <span className="text-ink-muted mt-px shrink-0 font-mono text-xs font-semibold">
                 {numMatch[1]}.
               </span>
               <span>{numMatch[2]}</span>
@@ -242,9 +242,9 @@ export function partRowClassName(
   focused = false,
 ): string {
   const base = `${indent} flex items-start gap-2 pt-2`;
-  const covered = ztCovered ? `${base} border-l-2 border-teal-400 pl-2` : base;
+  const covered = ztCovered ? `${base} border-l-2 border-zt pl-2` : base;
   return focused
-    ? `${covered} rounded bg-yellow-100 ring-2 ring-yellow-300`
+    ? `${covered} rounded bg-highlight ring-2 ring-highlight-ring`
     : covered;
 }
 
@@ -332,7 +332,7 @@ function PartItem({
       className={partRowClassName(indent, part.ztCovered, focused)}
     >
       {part.label ? (
-        <span className="mt-px shrink-0 rounded bg-slate-200 px-1.5 py-0.5 font-mono text-xs font-bold text-slate-600">
+        <span className="bg-surface-strong text-ink mt-px shrink-0 rounded px-1.5 py-0.5 font-mono text-xs font-bold">
           {formatPartLabel(part.label)}
         </span>
       ) : null}

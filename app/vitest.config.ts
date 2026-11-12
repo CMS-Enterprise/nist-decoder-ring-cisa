@@ -21,7 +21,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    exclude: ["**/node_modules/**", ".next/**"],
+    // e2e/ holds Playwright's browser tests (make test-browser); their *.spec.ts names
+    // match vitest's default pattern, so they are kept out here.
+    exclude: ["**/node_modules/**", ".next/**", "e2e/**"],
     projects: [
       {
         extends: true,
@@ -29,7 +31,12 @@ export default defineConfig({
           name: "unit",
           environment: "jsdom",
           setupFiles: ["./vitest.setup.ts"],
-          exclude: ["**/node_modules/**", ".next/**", INTEGRATION_GLOB],
+          exclude: [
+            "**/node_modules/**",
+            ".next/**",
+            "e2e/**",
+            INTEGRATION_GLOB,
+          ],
           // As in the integration project below: the auth configuration imports
           // next-auth, whose "next/server" import Node's ESM resolver rejects unless
           // Vite resolves it.
@@ -76,12 +83,6 @@ export default defineConfig({
         "src/app/layout.tsx",
         "src/app/(cake)/layout.tsx",
         "src/app/(cake)/page.tsx",
-        // The seed loaders and the catalog directory they resolve have no unit tests
-        // yet; the seed-pipeline area of docs/testing.md covers them. Remove these
-        // three when it does.
-        "prisma/seed.ts",
-        "prisma/seed-ecs.ts",
-        "prisma/catalog-dir.ts",
         // The NIST pipeline's pure modules ARE covered — parser, profile reader,
         // parameter resolver, writers and both gates. Only the side-effectful
         // shells are excluded, matching how check-links and version-guard are

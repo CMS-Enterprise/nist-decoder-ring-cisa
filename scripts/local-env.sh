@@ -192,12 +192,33 @@ cmd_guard() {
   die "DATABASE_URL names database '$db' on the shared dev container (localhost:$DEV_DB_PORT), but this checkout's database is '$DEV_DB_NAME'. Point DATABASE_URL in app/.env at postgresql://ztdecoder:<password>@localhost:$DEV_DB_PORT/$DEV_DB_NAME. Nothing was run."
 }
 
-# Lines of "port pid": every listener in the bands.
+# Lines of "port pid": every listener in the bands. On Ubuntu under WSL2, lsof has been
+# seen to miss the Next.js dev server's listener while ss lists it, so where ss exists
+# its listeners are added to lsof's.
 band_listeners() {
-  command -v lsof >/dev/null 2>&1 || { echo "ℹ️  lsof not installed; listeners not checked." >&2; return 0; }
-  # shellcheck disable=SC2086
-  lsof -nP $BAND_SPEC -sTCP:LISTEN 2>/dev/null |
-    awk 'NR>1 { n=$(NF-1); sub(/.*:/, "", n); print n, $2 }' | sort -n -u
+  if ! command -v lsof >/dev/null 2>&1 && ! command -v ss >/dev/null 2>&1; then
+    echo "ℹ️  Neither lsof nor ss is installed; listeners not checked." >&2
+    return 0
+  fi
+  {
+    if command -v lsof >/dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      # lsof exits 1 when it finds nothing; under pipefail that would end the group here.
+      lsof -nP $BAND_SPEC -sTCP:LISTEN 2>/dev/null |
+        awk 'NR>1 { n=$(NF-1); sub(/.*:/, "", n); print n, $2 }' || true
+    fi
+    if command -v ss >/dev/null 2>&1; then
+      # The same bands as BAND_SPEC. ss names a process only when it may see it.
+      ss -ltnpH 2>/dev/null | awk -v spec="$BAND_SPEC" '
+        BEGIN { k = split(spec, s, " "); for (i = 1; i <= k; i++) { r = s[i]; sub(/^-iTCP:/, "", r); split(r, b, "-"); lo[i] = b[1]; hi[i] = b[2] } }
+        { n = $4; sub(/.*:/, "", n); n += 0
+          for (i = 1; i <= k; i++) if (n >= lo[i] && n <= hi[i]) {
+            # Every process holding the socket, not only the first.
+            rest = $0
+            while (match(rest, /pid=[0-9]+/)) { print n, substr(rest, RSTART + 4, RLENGTH - 4); rest = substr(rest, RSTART + RLENGTH) }
+            break } }' || true
+    fi
+  } | sort -k1,1n -k2,2n -u
 }
 
 # The container publishing a host port, as "name dir", when it is one of this repository's
@@ -210,7 +231,13 @@ port_container() {
 }
 
 # Both answer empty, never fail, for a process that has already exited.
-pid_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true; }
+# Where lsof does not see a process, Linux's /proc still gives its working directory.
+pid_cwd() {
+  local d
+  d=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
+  [ -n "$d" ] || d=$(readlink "/proc/$1/cwd" 2>/dev/null || true)
+  printf '%s\n' "$d"
+}
 pid_cmd() { ps -o command= -p "$1" 2>/dev/null | cut -c1-60 || true; }
 pid_parent() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ' || true; }
 
@@ -218,13 +245,17 @@ cmd_status() {
   echo "Local environment for $ROOT"
   echo
   echo "Servers in the dev (3000-3019) and container (13000-13019) bands:"
-  local found=0 port pid cwd
+  local found=0 port pid cwd shown=" "
   while read -r port pid; do
     [ -n "$port" ] || continue
     found=1
     local ctr cname cdir
     ctr=$(port_container "$port")
     if [ -n "$ctr" ]; then
+      # Docker can hold one published port in two processes, one for IPv4 and one for IPv6,
+      # so a container is listed once per port rather than once per process.
+      case "$shown" in *" $port "*) continue ;; esac
+      shown="$shown$port "
       cname=${ctr%% *}
       cdir=${ctr#* }
       if in_repo "$cdir"; then

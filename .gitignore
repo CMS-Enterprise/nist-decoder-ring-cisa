@@ -7,6 +7,9 @@ node_modules/
 coverage/
 *.lcov
 .nyc_output
+# Playwright's results and HTML report (make test-browser)
+app/test-results/
+app/playwright-report/
 
 # Next.js
 .next/

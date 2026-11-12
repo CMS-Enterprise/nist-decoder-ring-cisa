@@ -4,7 +4,12 @@
 # Without this the hook ran every step and exited with the status of the LAST one, so a lint-staged failure was reported, reverted, and then silently overwritten by a passing typecheck — the commit went through carrying the lint error. A gate that prints its own failure and does not stop anything is worse than no gate, because it looks like it is working.
 set -e
 
-cd app
+# Git runs a hook from the top of the work tree, with GIT_DIR set. With GIT_DIR set,
+# `git rev-parse --show-toplevel` reports the current directory, so in a worktree it
+# would answer `app/` once the hook has moved there. Read the top before moving.
+root=$(git rev-parse --show-toplevel)
+
+cd "$root/app"
 yarn lint-staged
 yarn typecheck
 
@@ -12,7 +17,6 @@ yarn typecheck
 # generator, a generated links file, or a hand-maintained references file), run the OFFLINE URL gate: static format
 # checks, all hard. No DB, no network, so it stays fast and commit-safe. The live
 # probe is on demand (`make check-seed-links`), not run on every commit.
-root=$(git rev-parse --show-toplevel)
 if git diff --cached --name-only | grep -qE '^app/prisma/(generators/(zt-)?reference-links/|sources/reference-links/|generators/zt-overlay/|seed-sql/[^/]+/[0-9]{2}-[a-z-]+-links\.sql|seed-sql/[^/]+/[0-9]{2}-zt-references-[a-z]+\.sql)'; then
   echo "[pre-commit] seed link sources changed -> make ci-check-links"
   ( cd "$root" && make ci-check-links )

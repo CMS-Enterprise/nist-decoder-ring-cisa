@@ -1,0 +1,157 @@
+version: 1
+
+# The accessibility scan's page states. app/e2e/a11y.spec.ts runs frostfall over them
+# against the app the browser tests start, with the seeded database behind it, so the
+# same controls are on screen every run. Run it with `make test-a11y`; docs/testing.md
+# says how to read the report and add a state or a baseline entry.
+#
+# Every path, selector and wait below is the browser's view of the built app. A state
+# whose waitFor never appears is an environment error (exit 3), not a violation, so the
+# spec fails with frostfall's output rather than passing on a page it never reached.
+
+name: zt-decoder-ring
+
+server:
+  # Set by the spec to the app's address as the browser container sees it.
+  baseUrl: ${E2E_BASE_URL}
+
+defaults:
+  # WCAG 2.2 A and AA, with the 2.0 and 2.1 rules they build on.
+  standard: wcag22aa
+  # The cake's links render once the seeded catalog has loaded.
+  waitFor: '[id^="family-"] a[href^="/control/"]'
+  timeout: 60s
+  # Serious or worse fails, unless the baseline lists it.
+  expect:
+    severity: serious
+
+# frostfall reads this against its working directory, not this file's; the spec passes
+# --baseline with the mounted path instead, so this line only names the file.
+baseline: baseline.json
+
+tests:
+  - id: cake
+    path: /
+
+  - id: cake-filtered
+    path: /?pillar=IDENTITY
+
+  # The typeahead's results, open over the cake. Scoped to the list, since the cake
+  # behind it is the cake state's.
+  - id: search
+    path: /
+    scan: false
+    steps:
+      - fill: { 'input[aria-label="Search controls"]': access }
+      - waitFor: 'input[aria-label="Search controls"] ~ ul a[href^="/control/"]'
+      - scan:
+          label: results
+          scope: 'input[aria-label="Search controls"] ~ ul'
+
+  # The control modal, opened from the cake as a reader would, then another control
+  # opened from a cross-reference in the first one's prose (IA-02's discussion links
+  # IA-8). Each wait names the control by the modal's data-control-id: after the click
+  # the router keeps IA-02 on screen until the server answers, so a wait that any
+  # control satisfies would scan IA-02 twice. The procedures section renders only once
+  # the control has loaded. Scoped to the modal for the same reason as the search.
+  - id: control-modal
+    path: /
+    scan: false
+    steps:
+      - click: 'a[href="/control/IA-02"]'
+      - waitFor: '[data-control-id="IA-02"] [data-testid="assessment-procedures"]'
+      - scan:
+          label: open
+          scope: '[data-control-id="IA-02"]'
+      - click: 'button[data-control-ref="ia-8"]'
+      - waitFor: '[data-control-id="IA-08"] [data-testid="assessment-procedures"]'
+      - scan:
+          label: cross-reference
+          scope: '[data-control-id="IA-08"]'
+
+  # The export page, then the same page with a control picked. Not scoped: it has no
+  # cake behind it.
+  - id: export
+    path: /export
+    waitFor: 'input[placeholder^="Control number or name"]'
+    steps:
+      - fill: { 'input[placeholder^="Control number or name"]': AC-02 }
+      - press: Enter
+      - waitFor: 'button[aria-label="Remove AC-02"]'
+      - scan:
+          label: picked
+
+
+  # Dark twins: each state above again in the dark theme. Each chooses Dark in the
+  # header's Theme control, which stores it, then loads its page again (goto waits for the
+  # cake, as a test's own load does). The <head> script applies dark before first paint, so
+  # nothing on the reloaded page is mid-transition from light, and every scan in a twin
+  # comes after the reload.
+  - id: cake-dark
+    path: /
+    scan: false
+    steps:
+      - click: 'label:has(input[value="dark"])'
+      - waitFor: 'html[data-theme="dark"]'
+      - goto: /
+      - scan:
+          label: dark
+
+  - id: cake-filtered-dark
+    path: /?pillar=IDENTITY
+    scan: false
+    steps:
+      - click: 'label:has(input[value="dark"])'
+      - waitFor: 'html[data-theme="dark"]'
+      - goto: /?pillar=IDENTITY
+      - scan:
+          label: dark
+
+  - id: search-dark
+    path: /
+    scan: false
+    steps:
+      - click: 'label:has(input[value="dark"])'
+      - waitFor: 'html[data-theme="dark"]'
+      - goto: /
+      - fill: { 'input[aria-label="Search controls"]': access }
+      - waitFor: 'input[aria-label="Search controls"] ~ ul a[href^="/control/"]'
+      - scan:
+          label: results
+          scope: 'input[aria-label="Search controls"] ~ ul'
+
+  - id: control-modal-dark
+    path: /
+    scan: false
+    steps:
+      - click: 'label:has(input[value="dark"])'
+      - waitFor: 'html[data-theme="dark"]'
+      - goto: /
+      - click: 'a[href="/control/IA-02"]'
+      - waitFor: '[data-control-id="IA-02"] [data-testid="assessment-procedures"]'
+      - scan:
+          label: open
+          scope: '[data-control-id="IA-02"]'
+      - click: 'button[data-control-ref="ia-8"]'
+      - waitFor: '[data-control-id="IA-08"] [data-testid="assessment-procedures"]'
+      - scan:
+          label: cross-reference
+          scope: '[data-control-id="IA-08"]'
+
+  # The export page has no cake, and goto waits for the cake, so this twin chooses Dark
+  # on the cake and follows its Export link: the export page mounts already dark.
+  - id: export-dark
+    path: /
+    scan: false
+    steps:
+      - click: 'label:has(input[value="dark"])'
+      - waitFor: 'html[data-theme="dark"]'
+      - click: 'a[href^="/export"]'
+      - waitFor: 'input[placeholder^="Control number or name"]'
+      - scan:
+          label: dark
+      - fill: { 'input[placeholder^="Control number or name"]': AC-02 }
+      - press: Enter
+      - waitFor: 'button[aria-label="Remove AC-02"]'
+      - scan:
+          label: picked

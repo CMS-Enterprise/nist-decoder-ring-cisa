@@ -3,6 +3,8 @@
 
 -- CASCADE emits a NOTICE per dependent table; quiet them so a real warning stands out.
 SET client_min_messages = warning;
+TRUNCATE TABLE "Fips200Requirement" CASCADE;
+TRUNCATE TABLE "FipsImpactLevel" CASCADE;
 TRUNCATE TABLE "ControlLineage" CASCADE;
 TRUNCATE TABLE "NistControlExternalEntity" CASCADE;
 TRUNCATE TABLE "ExternalEntity" CASCADE;

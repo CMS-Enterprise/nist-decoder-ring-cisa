@@ -3,7 +3,7 @@
 Reads the published NIST SP 800-53 Rev 5 OSCAL catalog and the four SP 800-53B baseline profiles, and writes the eight backbone seed files for Decoder Ring Standard. The same run reads the SP 800-53A Release 5.2.0 assessment procedures from the pinned CPRT export and writes them as a ninth file, `08-assessment-procedures.sql`, after the controls and parts they attach to. It writes the catalog's withdrawn controls to `15-withdrawn-controls.sql` and its lineage to `16-control-lineage.sql`: where each withdrawn control went, and which controls this release added or dropped against the previous one, read from that release's committed catalog. The catalog's own reference links are a separate pipeline (`app/prisma/generators/reference-links/`, which writes `10-reference-links.sql`). It imports nothing from any other generator, and a test enforces that; the reference-link and overlay pipelines import its expectations gate, ID scheme, parser and pin.
 
 - Script: `app/prisma/generators/catalog/generate-seed.ts` (stages in the same directory)
-- Make targets: none of its own; run it through `yarn seed:generate`, then `make db-seed CATALOG=nist-800-53`
+- Make targets: none of its own; run it through `yarn seed:generate --offline`, then `make db-seed CATALOG=nist-800-53`
 
 ## How a run flows
 
@@ -66,11 +66,11 @@ flowchart TD
 ## Usage
 
 ```bash
-# Generate into app/prisma/seed-sql/nist-800-53/
-cd app && yarn seed:generate
-
-# Skip the pinned fetch and use the committed copy
+# Generate into app/prisma/seed-sql/nist-800-53/ from the committed copy; commit what this writes
 cd app && yarn seed:generate --offline
+
+# Fetch the pinned catalog instead; do not commit what this writes
+cd app && yarn seed:generate
 
 # Inspect a run before it touches tracked files
 cd app && yarn seed:generate --out-dir /tmp/nist-seed
@@ -83,6 +83,8 @@ cd app && yarn tsx prisma/generators/catalog/generate-seed.ts
 ```
 
 Flags: `--offline` skips the network entirely; `--out-dir <dir>` writes elsewhere, which is the safe way to inspect a run whose counts you do not trust yet; the directory must already exist.
+
+**Commit what `--offline` writes.** The committed files are an offline run's output. A run that fetches stamps `(fetch, verified)` and the readable catalog's blob on line 2 of every file it writes, where the committed files carry `(fallback, verified)` and the minified catalog's blob, so committing a fetched run fails the regeneration test (`app/prisma/generators/catalog/__tests__/regeneration.test.ts`). Fetching is how to check that the pin still matches upstream.
 
 ## Reference links
 

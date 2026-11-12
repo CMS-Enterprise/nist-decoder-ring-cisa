@@ -78,7 +78,6 @@ export interface ControlDetail {
   assessmentFrequency: string | null;
   /** The frequencies the control asks for, each organization-defined in this catalog. Absent on the layer-cake pre-load. */
   frequency?: FrequencyInfo | null;
-  priority: string | null;
   status:
     | "compliance"
     | "zero-trust-aligned"
@@ -164,7 +163,7 @@ function StatementContent({
     );
   }
   return (
-    <p className="text-sm text-slate-400 italic">No statement available.</p>
+    <p className="text-ink-muted text-sm italic">No statement available.</p>
   );
 }
 
@@ -211,7 +210,7 @@ function externalLink(key: number, href: string, label: string): ReactNode {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="font-medium break-all text-blue-600 hover:text-blue-800 hover:underline"
+      className="text-accent hover:text-accent-strong font-medium break-all hover:underline"
     >
       {label}
     </a>
@@ -245,8 +244,10 @@ export function renderDiscussion(
             <button
               key={key++}
               type="button"
+              // A hook for the accessibility scan, which finds elements by CSS only.
+              data-control-ref={id}
               onClick={() => onOpenControl(id)}
-              className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+              className="text-accent hover:text-accent-strong font-medium hover:underline"
             >
               {label}
             </button>,
@@ -286,10 +287,10 @@ export function Discussion({
   if (!text) return null;
   return (
     <div className="mt-6">
-      <div className="mb-2 flex items-center gap-2 text-xs font-bold tracking-wider text-yellow-700 uppercase">
+      <div className="text-warning mb-2 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
         <Info size={14} /> {product.discussionHeading}
       </div>
-      <div className="rounded-lg border border-yellow-100 bg-white p-4 text-sm leading-relaxed whitespace-pre-line text-slate-700 shadow-sm">
+      <div className="border-warning-subtle bg-surface-statement-raised text-ink rounded-lg border p-4 text-sm leading-relaxed whitespace-pre-line shadow-sm">
         {renderDiscussion(text, onOpenControl)}
       </div>
     </div>
@@ -340,19 +341,19 @@ export function AssessmentProcedures({
   }
   return (
     <div className="mt-6" data-testid="assessment-procedures">
-      <div className="mb-2 flex items-center gap-2 text-xs font-bold tracking-wider text-teal-700 uppercase">
+      <div className="text-zt mb-2 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
         <Info size={14} /> Assessment Procedures
       </div>
-      <div className="rounded-lg border border-teal-100 bg-white p-4 text-sm leading-relaxed text-slate-700 shadow-sm">
+      <div className="border-zt-muted bg-surface-statement-raised text-ink rounded-lg border p-4 text-sm leading-relaxed shadow-sm">
         {assessment.objectives.length > 0 && (
           <>
-            <div className="mb-2 text-xs font-semibold text-slate-500 uppercase">
+            <div className="text-ink-muted mb-2 text-xs font-semibold uppercase">
               Determination Statements
             </div>
             <ol className="mb-4 space-y-1">
               {assessment.objectives.map((o) => (
                 <li key={o.id} className="flex gap-2">
-                  <span className="mt-px shrink-0 font-mono text-xs text-slate-400">
+                  <span className="text-ink-muted mt-px shrink-0 font-mono text-xs">
                     {o.identifier.replace(/^DS-/, "")}
                   </span>
                   <span>{o.text}</span>
@@ -363,11 +364,11 @@ export function AssessmentProcedures({
         )}
         {assessment.methods.map((m) => (
           <div key={m.method} className="mb-3 last:mb-0">
-            <div className="text-xs font-semibold text-slate-500 uppercase">
+            <div className="text-ink-muted text-xs font-semibold uppercase">
               {METHOD_LABEL[m.method]}
             </div>
             {m.text === null ? (
-              <p className="text-slate-400 italic">
+              <p className="text-ink-muted italic">
                 No {METHOD_LABEL[m.method].toLowerCase()} method is available
                 for this control.
               </p>
@@ -452,7 +453,7 @@ function CisaDesignation({ block }: { block: Affinity }) {
         <>
           <span
             title={`${designation.label}: ${designation.definition}`}
-            className="inline-block rounded-full border border-blue-300 bg-white px-2 py-0.5 text-xs font-medium text-blue-900"
+            className="border-accent bg-surface text-accent-strong inline-block rounded-full border px-2 py-0.5 text-xs font-medium"
           >
             {designation.label}
           </span>
@@ -465,7 +466,7 @@ function CisaDesignation({ block }: { block: Affinity }) {
         <>
           <span
             title={`${IF_APPLICABLE.label}: ${IF_APPLICABLE.definition}`}
-            className="inline-block rounded-full border border-dashed border-slate-400 bg-white px-2 py-0.5 text-xs font-medium text-slate-700"
+            className="border-border-strong bg-surface text-ink inline-block rounded-full border border-dashed px-2 py-0.5 text-xs font-medium"
           >
             {IF_APPLICABLE.label}
           </span>
@@ -496,8 +497,8 @@ function groupAffinitiesByPillar(
 function ZTCoverageSummary({ affinities }: { affinities: Affinity[] }) {
   const groups = groupAffinitiesByPillar(affinities);
   return (
-    <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
-      <span className="mb-2 block text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+    <div className="border-accent-muted bg-surface-zt-raised rounded-xl border p-4 shadow-sm">
+      <span className="text-ink-muted mb-2 block text-[10px] font-bold tracking-wider uppercase">
         ZT Coverage
       </span>
       <ul className="space-y-1.5">
@@ -506,11 +507,11 @@ function ZTCoverageSummary({ affinities }: { affinities: Affinity[] }) {
             key={g.pillar}
             className="flex flex-wrap items-baseline gap-x-2 text-sm"
           >
-            <span className="font-bold text-blue-900">
+            <span className="text-accent-strong font-bold">
               {formatPillar(g.pillar)}
             </span>
-            <span className="text-slate-400">—</span>
-            <span className="text-slate-700">{g.functions.join(", ")}</span>
+            <span className="text-ink-muted">—</span>
+            <span className="text-ink">{g.functions.join(", ")}</span>
           </li>
         ))}
       </ul>
@@ -530,21 +531,21 @@ const ZT_GUIDANCE_PENDING = "Zero Trust guidance for this function is pending.";
 function ZTGuidanceBlock({ block }: { block: Affinity }) {
   const isPending = block.guidance === ZT_GUIDANCE_PENDING;
   return (
-    <div className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-blue-100 bg-blue-50/50 px-4 py-2.5">
-        <span className="text-sm font-bold text-blue-900">
+    <div className="border-accent-muted bg-surface-zt-raised overflow-hidden rounded-xl border shadow-sm">
+      <div className="border-accent-muted bg-accent-subtle flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2.5">
+        <span className="text-accent-strong text-sm font-bold">
           {formatPillar(block.pillar)}
         </span>
-        <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+        <span className="bg-accent-muted text-accent-strong inline-block rounded-full px-2 py-0.5 text-xs font-medium">
           {block.function}
         </span>
         <CisaDesignation block={block} />
         {isPending ? (
-          <span className="ml-auto inline-flex items-center text-xs font-medium text-slate-400">
+          <span className="text-ink-muted ml-auto inline-flex items-center text-xs font-medium">
             {block.maturity}
           </span>
         ) : (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs font-bold text-emerald-600">
+          <span className="text-success ml-auto inline-flex items-center gap-1 text-xs font-bold">
             {block.maturity}
             <CheckCircle size={13} />
           </span>
@@ -553,7 +554,7 @@ function ZTGuidanceBlock({ block }: { block: Affinity }) {
       <div className="p-5">
         <p
           className={`text-sm leading-relaxed whitespace-pre-line ${
-            isPending ? "text-slate-400 italic" : "text-slate-700"
+            isPending ? "text-ink-muted italic" : "text-ink"
           }`}
         >
           {block.guidance}
@@ -579,8 +580,8 @@ function SourceChip({
       data-applies={applies}
       className={`inline-flex h-5 items-center rounded px-1.5 text-[10px] ${
         applies
-          ? "bg-neutral-600 font-bold text-white"
-          : "border border-dashed border-neutral-400 bg-white font-medium text-neutral-600"
+          ? "bg-ink-muted text-on-accent font-bold"
+          : "border-border-strong bg-surface text-ink-muted border border-dashed font-medium"
       }`}
     >
       {label}
@@ -598,7 +599,7 @@ function SourceColumn({
 }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      <span className="text-[10px] font-bold tracking-wide text-slate-700 uppercase">
+      <span className="text-ink text-[10px] font-bold tracking-wide uppercase">
         {name}
       </span>
       {children}
@@ -610,8 +611,8 @@ function SourceColumn({
 export function BaselinesRow({ baselines }: { baselines: string[] }) {
   const has = new Set(baselines.map((b) => b.toLowerCase()));
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-      <span className="font-semibold text-slate-600">
+    <div className="text-ink-muted mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className="text-ink-muted font-semibold">
         {product.baselinesLabel}:
       </span>
       <SourceColumn name={product.catalogColumnLabel}>
@@ -659,9 +660,9 @@ export function FrequencyRow({
         ? `${product.frequencyInheritsChip} ${inheritedFrom.id}`
         : product.frequencyNoneChip;
   return (
-    <div className="mb-4 text-xs text-slate-500">
+    <div className="text-ink-muted mb-4 text-xs">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-semibold text-slate-600">
+        <span className="text-ink-muted font-semibold">
           {product.frequencyLabel}:
         </span>
         <SourceColumn name={product.catalogColumnLabel}>
@@ -671,7 +672,7 @@ export function FrequencyRow({
               aria-expanded={open}
               aria-controls={open ? listId : undefined}
               onClick={() => setOpen((v) => !v)}
-              className="inline-flex h-5 items-center gap-1 rounded bg-neutral-600 px-1.5 text-[10px] font-bold text-white hover:bg-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
+              className="bg-ink-muted text-on-accent hover:bg-ink inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-bold"
             >
               {chip}
               <ChevronDown
@@ -699,18 +700,18 @@ export function FrequencyRow({
       {open && shown.length > 0 && (
         <ul
           id={listId}
-          className="mt-2 space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+          className="border-border bg-surface-canvas mt-2 space-y-1 rounded-md border px-3 py-2"
         >
           {inherits && inheritedFrom && (
-            <li className="text-[11px] text-slate-500">
+            <li className="text-ink-muted text-[11px]">
               {product.frequencyInheritedLead}{" "}
-              <strong className="text-slate-700">{inheritedFrom.id}</strong>
+              <strong className="text-ink">{inheritedFrom.id}</strong>
             </li>
           )}
           {shown.map((f, i) => (
-            <li key={i} className="text-slate-700">
+            <li key={i} className="text-ink">
               {(f.part ?? inherits) && (
-                <span className="mr-1 font-mono text-slate-600">
+                <span className="text-ink-muted mr-1 font-mono">
                   {inherits && inheritedFrom
                     ? `${inheritedFrom.id}${f.part ?? ""}`
                     : f.part}
@@ -775,10 +776,10 @@ export function ZTPane({
           </div>
         </>
       ) : (
-        <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
-          <Lock className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="font-medium text-slate-500">No Zero Trust Mapping</p>
-          <p className="mt-1 text-sm text-slate-400">
+        <div className="border-border bg-surface-canvas rounded-xl border-2 border-dashed p-6 text-center">
+          <Lock className="text-ink-muted mx-auto mb-3 h-10 w-10" />
+          <p className="text-ink-muted font-medium">No Zero Trust Mapping</p>
+          <p className="text-ink-muted mt-1 text-sm">
             {product.ztUnmappedMessage}
           </p>
         </div>
@@ -825,11 +826,11 @@ export function WithdrawnZTPane({
   return (
     <div
       data-testid="withdrawn-zt-pane"
-      className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center"
+      className="border-border bg-surface-canvas rounded-xl border-2 border-dashed p-6 text-center"
     >
-      <Lock className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-      <p className="font-medium text-slate-500">No Zero Trust Mapping</p>
-      <p className="mt-1 text-sm text-slate-400">
+      <Lock className="text-ink-muted mx-auto mb-3 h-10 w-10" />
+      <p className="text-ink-muted font-medium">No Zero Trust Mapping</p>
+      <p className="text-ink-muted mt-1 text-sm">
         {mapped.length > 0
           ? "A withdrawn control carries none. Its Zero Trust guidance is on:"
           : successors.length > 0
@@ -846,7 +847,7 @@ export function WithdrawnZTPane({
                 onOpenControl={onOpenControl}
                 onOpenPart={onOpenPart}
               />{" "}
-              <span className="text-xs text-slate-500">
+              <span className="text-ink-muted text-xs">
                 {(s.ztPillars ?? []).map(formatPillar).join(", ")}
               </span>
             </li>
@@ -1009,6 +1010,8 @@ export default function ControlModal({
     const textToCopy = buildCopyText(record, {
       discussionHeading: product.discussionHeading,
       enhancementChip: product.enhancementSpecificChip,
+      relatedHeading: product.relatedHeading,
+      relatedOutsideMarker: product.relatedOutsideMarker,
     });
 
     try {
@@ -1033,24 +1036,29 @@ export default function ControlModal({
   };
 
   return (
-    <div className="animate-in fade-in fixed inset-0 z-50 flex items-stretch bg-slate-900/70 p-4 backdrop-blur-sm duration-200 md:p-6">
-      <div className="relative flex w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl md:flex-row">
+    <div
+      // Which control is showing, for the accessibility scan to wait on after a
+      // cross-reference, when the previous control's content is still on screen.
+      data-control-id={control.id}
+      className="animate-in fade-in bg-scrim/70 fixed inset-0 z-50 flex items-stretch p-4 backdrop-blur-sm duration-200 md:p-6"
+    >
+      <div className="border-border bg-surface relative flex w-full flex-col overflow-hidden rounded-xl border shadow-2xl md:flex-row">
         {/* LEFT PANE: the control */}
-        <div className="relative w-full overflow-y-auto border-r border-yellow-200 bg-[#FFFDF0] p-6 md:w-3/5 md:p-8">
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-yellow-400 to-yellow-200"></div>
+        <div className="border-highlight-edge bg-surface-statement relative w-full overflow-y-auto border-r p-6 md:w-3/5 md:p-8">
+          <div className="from-highlight-edge to-highlight absolute top-0 left-0 h-1 w-full bg-gradient-to-r"></div>
 
           <div className="mb-6 flex items-center gap-2">
-            <div className="rounded-lg bg-yellow-100 p-2 text-yellow-700">
+            <div className="bg-warning-subtle text-warning rounded-lg p-2">
               <FileText size={24} />
             </div>
-            <span className="text-xs font-bold tracking-widest text-yellow-800 uppercase">
+            <span className="text-warning text-xs font-bold tracking-widest uppercase">
               {product.controlPaneHeading}
             </span>
           </div>
 
           <div className="mb-1 flex items-baseline justify-between">
             <div className="flex items-baseline gap-3">
-              <h2 className="text-4xl font-extrabold text-slate-900">
+              <h2 className="text-ink text-4xl font-extrabold">
                 {activeDetail?.id ?? control.id}
               </h2>
               <LineageChip
@@ -1059,12 +1067,12 @@ export default function ControlModal({
               />
             </div>
             {activeDetail && hasAnyCoverage(activeDetail.parts) && (
-              <span className="border-l-2 border-teal-400 pl-2 text-xs font-medium text-teal-600">
+              <span className="border-zt text-zt border-l-2 pl-2 text-xs font-medium">
                 ZT enriched subcontrol
               </span>
             )}
           </div>
-          <h4 className="mb-4 text-xl leading-tight font-bold text-slate-800">
+          <h4 className="text-ink mb-4 text-xl leading-tight font-bold">
             {activeDetail?.name ?? control.name}
           </h4>
 
@@ -1074,27 +1082,42 @@ export default function ControlModal({
               {!detailData?.ztMapping &&
                 !onEnhancement &&
                 enhancements.some((e) => e.ztMapping) && (
-                  <div className="mb-3 flex items-center gap-2 rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-sm text-teal-800">
+                  <div className="border-zt-muted bg-zt-subtle text-zt mb-3 flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                     <span className="font-semibold">
                       ZT alignment available in enhancements
                     </span>
-                    <span className="text-teal-600">
-                      — select a teal tab below
+                    <span className="text-zt">
+                      — select a tab marked ZT below
                     </span>
                   </div>
                 )}
               <div className="mb-4 flex flex-wrap gap-1.5">
                 <button
                   onClick={() => selectTab(null)}
+                  aria-pressed={!onEnhancement}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                     !onEnhancement
-                      ? "bg-yellow-600 text-white shadow-sm"
+                      ? "bg-ink text-on-accent shadow-[inset_0_-3px_0_var(--color-on-accent)]"
                       : detailData?.ztMapping
-                        ? "bg-blue-600 text-white shadow-sm hover:bg-blue-500"
-                        : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                        ? "bg-accent text-on-accent hover:bg-accent-strong shadow-sm"
+                        : "bg-surface text-warning ring-highlight-edge hover:bg-highlight ring-1 ring-inset"
                   }`}
+                  aria-label={
+                    detailData?.ztMapping
+                      ? "Base ZT, Zero Trust mapped"
+                      : undefined
+                  }
                 >
                   Base
+                  {/* A space, not a margin, so the visible text reads "Base ZT" as the name does. */}
+                  {detailData?.ztMapping && (
+                    <>
+                      {" "}
+                      <span aria-hidden="true" className="text-[10px]">
+                        ZT
+                      </span>
+                    </>
+                  )}
                 </button>
                 {enhancements.map((enh) => {
                   const label = enhancementLabel(enh.id);
@@ -1108,35 +1131,55 @@ export default function ControlModal({
                         selectTab(splitControlId(enh.id).enhancement)
                       }
                       title={enhWithdrawn ? "Withdrawn" : undefined}
+                      aria-pressed={activeEnhancement?.id === enh.id}
                       // Named in full rather than through a visually hidden suffix, whose
-                      // spacing the name computation does not keep.
+                      // spacing the name computation does not keep. The name starts with
+                      // the visible text, marks included, so it meets Label in Name (2.5.3).
                       aria-label={
                         enhWithdrawn
                           ? `${label}, withdrawn`
-                          : added
-                            ? `${label}, new in ${added.release}`
-                            : undefined
+                          : [
+                              [label, enh.ztMapping && "ZT", added && "new"]
+                                .filter(Boolean)
+                                .join(" "),
+                              enh.ztMapping && "Zero Trust mapped",
+                              added && `new in ${added.release}`,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")
                       }
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                         enhWithdrawn ? "line-through" : ""
                       } ${
                         activeEnhancement?.id === enh.id
-                          ? "bg-yellow-600 text-white shadow-sm"
+                          ? "bg-ink text-on-accent shadow-[inset_0_-3px_0_var(--color-on-accent)]"
                           : enhWithdrawn
-                            ? "border border-dashed border-slate-300 bg-slate-50 text-slate-400 hover:bg-slate-100"
+                            ? "border-border-strong bg-surface-canvas text-ink-muted hover:bg-surface-muted border border-dashed"
                             : enh.ztMapping
-                              ? "bg-teal-700 text-white shadow-sm hover:bg-teal-600"
-                              : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                              ? "bg-zt text-on-accent hover:bg-zt-strong shadow-sm"
+                              : "bg-surface text-warning ring-highlight-edge hover:bg-highlight ring-1 ring-inset"
                       }`}
                     >
                       {label}
+                      {/* The mapped tabs' mark, so mapping is not shown by color alone. */}
+                      {enh.ztMapping && !enhWithdrawn && (
+                        <>
+                          {" "}
+                          <span aria-hidden="true" className="text-[10px]">
+                            ZT
+                          </span>
+                        </>
+                      )}
                       {added && (
-                        <span
-                          aria-hidden="true"
-                          className="ml-1 text-[10px] uppercase"
-                        >
-                          new
-                        </span>
+                        <>
+                          {" "}
+                          <span
+                            aria-hidden="true"
+                            className="text-[10px] uppercase"
+                          >
+                            new
+                          </span>
+                        </>
                       )}
                     </button>
                   );
@@ -1154,7 +1197,7 @@ export default function ControlModal({
                       // Hiding them from a withdrawn tab returns to the base.
                       if (onEnhancement && withdrawn) selectTab(null);
                     }}
-                    className="rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100"
+                    className="border-border-strong text-ink-muted hover:bg-surface-muted rounded-md border border-dashed px-3 py-1.5 text-xs font-semibold transition-colors"
                   >
                     {withdrawnShown
                       ? "Hide withdrawn"
@@ -1163,7 +1206,7 @@ export default function ControlModal({
                 )}
               </div>
               {withdrawnShown && (
-                <p className="-mt-2 mb-4 text-xs text-slate-500">
+                <p className="text-ink-muted -mt-2 mb-4 text-xs">
                   <span className="line-through">Struck-through</span> tabs are
                   withdrawn enhancements; each says where its content went.
                 </p>
@@ -1181,32 +1224,11 @@ export default function ControlModal({
             [
               activeDetail.reviewFrequency,
               activeDetail.assessmentFrequency,
-              activeDetail.priority,
             ].some(Boolean) && (
-              <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500">
-                {activeDetail.priority && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-600">
-                      {product.priorityLabel}:
-                    </span>
-                    <span
-                      className={`inline-flex h-5 items-center rounded px-1.5 text-[10px] font-bold ${
-                        activeDetail.priority === "P1"
-                          ? "bg-red-100 text-red-800"
-                          : activeDetail.priority === "P2"
-                            ? "bg-orange-100 text-orange-800"
-                            : activeDetail.priority === "P3"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {activeDetail.priority}
-                    </span>
-                  </span>
-                )}
+              <div className="text-ink-muted mb-4 flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 {activeDetail.reviewFrequency && (
                   <span>
-                    <span className="font-semibold text-slate-600">
+                    <span className="text-ink-muted font-semibold">
                       Review:
                     </span>{" "}
                     {activeDetail.reviewFrequency}
@@ -1214,7 +1236,7 @@ export default function ControlModal({
                 )}
                 {activeDetail.assessmentFrequency && (
                   <span>
-                    <span className="font-semibold text-slate-600">
+                    <span className="text-ink-muted font-semibold">
                       Assessment:
                     </span>{" "}
                     {activeDetail.assessmentFrequency}
@@ -1246,13 +1268,13 @@ export default function ControlModal({
               onOpenFamily={onOpenFamily}
             />
           ) : (
-            <div className="rounded-lg border border-yellow-100 bg-white p-4 text-sm leading-relaxed text-slate-700 shadow-sm">
+            <div className="border-warning-subtle bg-surface-statement-raised text-ink rounded-lg border p-4 text-sm leading-relaxed shadow-sm">
               {detailLoading ? (
                 <div className="space-y-3">
-                  <div className="h-4 w-3/4 animate-pulse rounded bg-slate-200" />
-                  <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
-                  <div className="h-4 w-5/6 animate-pulse rounded bg-slate-200" />
-                  <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
+                  <div className="bg-surface-strong h-4 w-3/4 animate-pulse rounded" />
+                  <div className="bg-surface-strong h-4 w-full animate-pulse rounded" />
+                  <div className="bg-surface-strong h-4 w-5/6 animate-pulse rounded" />
+                  <div className="bg-surface-strong h-4 w-2/3 animate-pulse rounded" />
                 </div>
               ) : activeDetail ? (
                 <StatementContent
@@ -1260,7 +1282,7 @@ export default function ControlModal({
                   focusPartId={focusPart}
                 />
               ) : (
-                <p className="text-slate-500">Loading control details...</p>
+                <p className="text-ink-muted">Loading control details...</p>
               )}
             </div>
           )}
@@ -1306,16 +1328,16 @@ export default function ControlModal({
           )}
 
           <div className="mt-8 flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-yellow-700 uppercase">
+            <div className="text-warning flex items-center gap-2 text-xs font-semibold tracking-wider uppercase">
               <Shield size={14} /> Source Framework
             </div>
-            <span className="inline-flex items-center self-start rounded-md border border-yellow-200 bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-900">
+            <span className="border-highlight-edge bg-warning-subtle text-warning inline-flex items-center self-start rounded-md border px-3 py-1 text-sm font-medium">
               {nistVersion ?? product.catalogFallbackLabel}
             </span>
           </div>
 
           {activeDetail && !activeDetail.ztMapping && !withdrawn && (
-            <div className="mt-8 flex items-center gap-2 rounded border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            <div className="border-highlight-edge bg-warning-subtle text-warning mt-8 flex items-center gap-2 rounded border px-4 py-3 text-sm">
               <Info size={16} className="shrink-0" />
               <span>{product.ztUnmappedMessage}</span>
             </div>
@@ -1323,22 +1345,22 @@ export default function ControlModal({
         </div>
 
         {/* RIGHT PANE: Zero Trust Guidance */}
-        <div className="relative flex w-full flex-col overflow-y-auto bg-[#F0F9FF] p-6 md:w-2/5 md:p-8">
+        <div className="bg-surface-zt relative flex w-full flex-col overflow-y-auto p-6 md:w-2/5 md:p-8">
           <button
             onClick={onClose}
             aria-label="Close"
-            className="absolute top-6 right-6 z-50 rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="text-ink-muted hover:bg-surface-muted hover:text-ink absolute top-6 right-6 z-50 rounded-full p-1 transition-colors"
           >
             <X className="h-6 w-6" />
           </button>
 
-          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-400 to-cyan-300"></div>
+          <div className="from-accent to-zt-muted absolute top-0 left-0 h-1 w-full bg-gradient-to-r"></div>
 
           <div className="mb-6 flex items-center gap-2">
-            <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
+            <div className="bg-accent-muted text-accent rounded-lg p-2">
               <Lock size={24} />
             </div>
-            <h3 className="text-sm font-bold tracking-widest text-blue-800 uppercase">
+            <h3 className="text-accent-strong text-sm font-bold tracking-widest uppercase">
               Zero Trust Security Function
             </h3>
           </div>
@@ -1366,7 +1388,6 @@ export default function ControlModal({
                 discussion: null,
                 reviewFrequency: null,
                 assessmentFrequency: null,
-                priority: null,
                 parts: [],
                 ztLinks: [],
                 nistLinks: [],
@@ -1374,9 +1395,9 @@ export default function ControlModal({
               }}
             />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 text-slate-400">
+            <div className="border-border bg-surface-canvas text-ink-muted flex h-full flex-col items-center justify-center rounded-xl border-2 border-dashed p-8">
               <Lock className="mb-4 h-12 w-12 opacity-20" />
-              <p className="text-lg font-medium text-slate-500">
+              <p className="text-ink-muted text-lg font-medium">
                 No Zero Trust Mapping
               </p>
               <p className="mt-2 max-w-xs text-center text-sm">
@@ -1386,7 +1407,7 @@ export default function ControlModal({
           )}
 
           {/* EXPORT + COPY ACTIONS */}
-          <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-blue-200 pt-6">
+          <div className="border-accent-muted mt-8 flex flex-wrap items-center justify-end gap-3 border-t pt-6">
             {/* The tab shown is what is exported; a base may bring its enhancements. */}
             <QuickExport
               // Per tab, so one tab's busy or failed download does not show on another.
@@ -1402,8 +1423,8 @@ export default function ControlModal({
               onClick={handleCopy}
               className={`flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-bold shadow-md transition-all active:scale-95 ${
                 copied
-                  ? "bg-emerald-500 text-white shadow-emerald-200"
-                  : "bg-slate-900 text-white shadow-slate-300 hover:bg-slate-800"
+                  ? "bg-success text-on-accent shadow-success/30"
+                  : "bg-ink text-on-accent shadow-ink/20 hover:bg-ink/85"
               }`}
             >
               {copied ? (

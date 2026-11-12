@@ -19,7 +19,7 @@ environment = "prod"
 waf_mode = "public"
 
 # Pinned image tag, bumped in lockstep with each push.
-container_image_tag = "v0.1.14"
+container_image_tag = "v0.1.16"
 
 # HTTPS listener and the app's service: turn on after the certificate for
 # app_fqdn is ISSUED.

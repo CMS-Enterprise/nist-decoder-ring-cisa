@@ -82,6 +82,7 @@ describe("the export page's queries", () => {
       { family: ["AC"] },
       { family: ["AC"], enhancements: "without" as const },
       { pillar: ["IDENTITY"], baseline: ["MODERATE"] },
+      { pillar: ["IDENTITY"], maturity: ["OPTIMAL"] },
       { q: "audit" },
       { pick: ["AC-02", "ia-5.1"], enhancements: "only" as const },
       // This catalog's own: the designation facet, which also filters enhancements, and a
@@ -194,6 +195,123 @@ describe("getExportRecord", () => {
     expect(ids(r).sort()).toEqual(shown.sort());
   });
 
+  it("keeps only the Zero Trust rows a maturity or pillar filter selects, and none on a pick", async () => {
+    const whole = await exporter.export.getExportRecord(
+      select({ enhancements: "without", data: ["zeroTrust"] }),
+    );
+    // A control with rows at two maturities, so a trimmed pick would show.
+    const mixed = whole.controls.find(
+      (c) => new Set(c.zeroTrust!.map((t) => t.maturity)).size > 1,
+    )!;
+    const maturity = mixed.zeroTrust![0]!.maturity;
+    const r = await exporter.export.getExportRecord(
+      select({ maturity: [maturity] }),
+    );
+    expect(r.zeroTrustFiltered).toBe(true);
+    expect(r.controls.length).toBeGreaterThan(0);
+    for (const c of r.controls) {
+      expect(c.zeroTrust!.length, c.id).toBeGreaterThan(0);
+      for (const t of c.zeroTrust!) expect(t.maturity, c.id).toBe(maturity);
+    }
+
+    const picked = await exporter.export.getExportRecord(
+      select({
+        pick: [mixed.id],
+        enhancements: "without",
+        maturity: [maturity],
+      }),
+    );
+    expect(picked.zeroTrustFiltered).toBeUndefined();
+    expect(picked.controls[0]!.zeroTrust).toEqual(mixed.zeroTrust);
+
+    const multi = whole.controls.find(
+      (c) => new Set(c.zeroTrust!.map((t) => t.pillar)).size > 1,
+    )!;
+    const pillar = multi.zeroTrust![0]!.pillar;
+    const byPillar = await exporter.export.getExportRecord(
+      select({ pillar: [pillar], enhancements: "without" }),
+    );
+    expect(ids(byPillar)).toContain(multi.id);
+    for (const c of byPillar.controls) {
+      expect(c.zeroTrust!.length, c.id).toBeGreaterThan(0);
+      for (const t of c.zeroTrust!) expect(t.pillar, c.id).toBe(pillar);
+    }
+  });
+
+  it("keeps only the rows a designation filter selects, alone or with a pillar", async () => {
+    const whole = await exporter.export.getExportRecord(
+      select({ enhancements: "without", data: ["zeroTrust"] }),
+    );
+    const sample = whole.controls
+      .flatMap((c) => c.zeroTrust!)
+      .find((t) => t.designation)!;
+    const designation = sample.designation!;
+    const bridge = await caller.decoder.getBridgeData();
+    for (const query of [
+      { designation: [designation] },
+      { designation: [designation], pillar: [sample.pillar] },
+    ]) {
+      const r = await exporter.export.getExportRecord(
+        select({ ...query, enhancements: "without" }),
+      );
+      const shown = bridge.families
+        .flatMap((f) => f.controls)
+        .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }))
+        .map((c) => c.id);
+      expect(ids(r).sort(), JSON.stringify(query)).toEqual(shown.sort());
+      for (const c of r.controls) {
+        if (!query.pillar) expect(c.zeroTrust!.length, c.id).toBeGreaterThan(0);
+        for (const t of c.zeroTrust!) {
+          expect(t.designation, c.id).toBe(designation);
+          if (query.pillar) expect(t.pillar, c.id).toBe(sample.pillar);
+        }
+      }
+    }
+  });
+
+  it("with pillar and maturity both on, exports what the diagram shows, each with only the rows that match both", async () => {
+    // A control that has the pillar and the maturity on different rows: the diagram shows it.
+    const whole = await exporter.export.getExportRecord(
+      select({ enhancements: "without", data: ["zeroTrust"] }),
+    );
+    const split = whole.controls.flatMap((c) => {
+      const zt = c.zeroTrust!;
+      return zt.flatMap((a) =>
+        zt
+          .filter(
+            (b) =>
+              !zt.some(
+                (t) => t.pillar === a.pillar && t.maturity === b.maturity,
+              ),
+          )
+          .map((b) => ({ id: c.id, pillar: a.pillar, maturity: b.maturity })),
+      );
+    })[0];
+    expect(
+      split,
+      "the seed has a control whose facets match on different rows",
+    ).toBeDefined();
+    const query = { pillar: [split!.pillar], maturity: [split!.maturity] };
+
+    const r = await exporter.export.getExportRecord(
+      select({ ...query, enhancements: "without" }),
+    );
+    const bridge = await caller.decoder.getBridgeData();
+    const shown = bridge.families
+      .flatMap((f) => f.controls)
+      .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }))
+      .map((c) => c.id);
+    expect(ids(r).sort()).toEqual(shown.sort());
+
+    for (const c of r.controls) {
+      const all = whole.controls.find((w) => w.id === c.id)!.zeroTrust!;
+      const both = all.filter(
+        (t) => t.pillar === split!.pillar && t.maturity === split!.maturity,
+      );
+      expect(c.zeroTrust, c.id).toEqual(both);
+    }
+  });
+
   it("free-text search narrows on the server's prose match, as the diagram does", async () => {
     const { matchingIds } = await caller.decoder.searchControls({
       q: "account",
@@ -225,7 +343,7 @@ describe("getExportRecord", () => {
 
   it("exports a withdrawn control when it is picked", async () => {
     const withdrawn = await db.nistControl.findFirstOrThrow({
-      where: { status: "WITHDRAWN" },
+      where: { status: "WITHDRAWN", nistVersion: { isActive: true } },
       select: { controlNumber: true },
     });
     const r = await exporter.export.getExportRecord(
@@ -236,7 +354,11 @@ describe("getExportRecord", () => {
 
   it("carries a withdrawn control's lineage as the modal's Copy prints it", async () => {
     const withdrawn = await db.nistControl.findFirstOrThrow({
-      where: { status: "WITHDRAWN", lineage: { some: {} } },
+      where: {
+        status: "WITHDRAWN",
+        lineage: { some: {} },
+        nistVersion: { isActive: true },
+      },
       select: { controlNumber: true },
     });
     const detail = await caller.decoder.getControlById({
@@ -267,7 +389,11 @@ describe("getExportRecord", () => {
     };
     const row = (where: Prisma.ControlLineageWhereInput) =>
       db.controlLineage.findFirstOrThrow({
-        where: { controlId: { not: null }, ...where },
+        where: {
+          controlId: { not: null },
+          nistVersion: { isActive: true },
+          ...where,
+        },
         orderBy: { controlNumber: "asc" },
       });
 

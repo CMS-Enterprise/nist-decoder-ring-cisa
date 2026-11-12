@@ -52,3 +52,6 @@ yarn-error.log*
 
 # prisma generated client
 /generated
+# frostfall: the pinned binary make _install-frostfall fetches, and the scan's report
+/.frostfall/
+/frostfall-report/

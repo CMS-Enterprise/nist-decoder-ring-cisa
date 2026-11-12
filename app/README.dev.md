@@ -84,7 +84,7 @@ make local-status       # This repo's servers, containers, databases and worktre
 make local-stop         # Stop this repo's dev servers and app containers
 ```
 
-`local-status` and `local-stop` need git 2.31 or later, and `lsof` and `ps` as found on macOS and Linux.
+`local-status` and `local-stop` need git 2.31 or later, `ps`, and `lsof` or `ss` to list the listeners. Both are used where both exist; on Ubuntu under WSL2, `lsof` has been seen to miss the Next.js dev server's listener while `ss` lists it.
 
 **One container, a database per checkout.** Every worktree uses the same Postgres container (`zt-decoder-ring-db`, `localhost:5439`) and the same data volume, whichever worktree started it. Each checkout keeps its own database in it: this one's is `zt_decoder_ring_standard` (`DEV_DB_NAME` in the Makefile, with the same default in `docker-compose.yml` and `.env.example`). `make db-up` creates it when another checkout started the container, and `make dev`, `dev-debug`, `db-migrate`, `db-push`, `db-studio`, `db-seed` and `db-ready` refuse a `DATABASE_URL` that points at the shared container but names a different database.
 
@@ -92,7 +92,7 @@ make local-stop         # Stop this repo's dev servers and app containers
 
 - Seed loads the 1,014 live NIST SP 800-53 Rev 5 controls, the 182 withdrawn with their successors, and the Zero Trust overlay from `prisma/seed-sql/nist-800-53/`
 - Includes parent/child relationships between base controls and enhancements
-- `prisma/seed.ts` runs each SQL file in order through `psql`; see [data-pipeline.md](../docs/architecture/data-pipeline.md)
+- `prisma/seed.ts` runs each SQL file in order through the `pg` driver, with the same loader as the ECS seed task, so no `psql` is needed; see [data-pipeline.md](../docs/architecture/data-pipeline.md)
 - Safe to run multiple times (cleans existing data first)
 
 ## Development Workflow
@@ -256,10 +256,11 @@ The project uses **commit-and-tag-version** for automated semantic versioning ba
 A release lands as a reviewed pull request, like any other change. Where the default branch requires review, a local `make app-release` followed by `git push --follow-tags` cannot reach it, so:
 
 1. Branch from the default branch.
-2. Set the version in `app/package.json` and in both environments' `container_image_tag`. `make set-version VERSION=<x.y.z> ENV=<env>` does both for one environment, and `make release-image` runs it when it builds the image.
-3. Add the release's entry to `CHANGELOG.md`, each line linked to its pull request. `yarn release:dry-run` drafts one from the conventional commits, as a starting point.
-4. Open the pull request, listing the pull requests the release carries.
-5. Once it merges, tag its merge commit `v<x.y.z>`.
+2. Run `make scan-base`. A fixed HIGH or CRITICAL CVE in a pinned base fails here in seconds; in the runner's base it would also fail the release image's scan later, after a full build. If it fails, run `make refresh-image-digests` and commit the new pins with the release, or record a finding assessed as not reachable in `security/vex.openvex.json` (see `docs/testing.md`).
+3. Set the version in `app/package.json` and in both environments' `container_image_tag`. `make set-version VERSION=<x.y.z> ENV=<env>` does both for one environment, and `make release-image` runs it when it builds the image.
+4. Add the release's entry to `CHANGELOG.md`, each line linked to its pull request. `yarn release:dry-run` drafts one from the conventional commits, as a starting point.
+5. Open the pull request, listing the pull requests the release carries.
+6. Once it merges, tag its merge commit `v<x.y.z>`.
 
 The version lives in `app/package.json` and the image tags. The sections below describe what `commit-and-tag-version` itself does.
 

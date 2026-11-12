@@ -88,7 +88,8 @@ def main(argv):
     except PinError as e:
         print(f"{path}: {e}", file=sys.stderr)
         return 2
-    except (OSError, http.client.HTTPException) as e:
+    # A Dockerfile that is not UTF-8 is one the check cannot read, not a changed bundle.
+    except (OSError, UnicodeDecodeError, http.client.HTTPException) as e:
         print(f"Could not read {path} or fetch the bundle: {e!r}", file=sys.stderr)
         return 2
     print(message, file=sys.stdout if ok else sys.stderr)

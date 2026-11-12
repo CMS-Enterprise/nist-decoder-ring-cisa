@@ -25,46 +25,37 @@ export async function SignInControl() {
 
   const session = await auth();
   const button =
-    "rounded border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:ring-2 focus:ring-blue-600 focus:outline-none";
+    "rounded border border-border-strong bg-surface px-3 py-1 text-sm font-medium text-ink hover:bg-surface-canvas";
 
   if (session?.user) {
     return (
-      <HeaderRow>
-        <form
-          className="flex items-center gap-3"
-          action={async () => {
-            "use server";
-            await signOut();
-          }}
-        >
-          <span className="text-sm text-slate-700">
-            {session.user.name ?? session.user.email}
-          </span>
-          <button type="submit" className={button}>
-            Sign out
-          </button>
-        </form>
-      </HeaderRow>
+      <form
+        className="flex items-center gap-3"
+        action={async () => {
+          "use server";
+          await signOut();
+        }}
+      >
+        <span className="text-ink text-sm">
+          {session.user.name ?? session.user.email}
+        </span>
+        <button type="submit" className={button}>
+          Sign out
+        </button>
+      </form>
     );
   }
 
   return (
-    <HeaderRow>
-      <form
-        action={async () => {
-          "use server";
-          await signIn(OIDC_PROVIDER_ID);
-        }}
-      >
-        <button type="submit" className={button}>
-          {settings.name ? `Sign in with ${settings.name}` : "Sign in"}
-        </button>
-      </form>
-    </HeaderRow>
+    <form
+      action={async () => {
+        "use server";
+        await signIn(OIDC_PROVIDER_ID);
+      }}
+    >
+      <button type="submit" className={button}>
+        {settings.name ? `Sign in with ${settings.name}` : "Sign in"}
+      </button>
+    </form>
   );
-}
-
-/** The header's top-right row, rendered only when the control has something to show. */
-function HeaderRow({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto flex max-w-6xl justify-end">{children}</div>;
 }

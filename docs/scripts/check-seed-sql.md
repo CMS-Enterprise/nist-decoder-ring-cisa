@@ -6,7 +6,7 @@
 
 Checks the committed seed SQL for defects that would fail an INSERT, or would load and then show wrong on the page. It runs against one catalog's directory, `app/prisma/seed-sql/<catalog>/`, and fails the run on any of these:
 
-- **Missing files:** `04`, `06` or `07` is absent (every catalog seeds them, overlay or not), or `12` is absent while `09` is present. The output names each missing file.
+- **Missing or empty files:** `04`, `06` or `07` is absent (every catalog seeds them, overlay or not), `04` or `06` inserts no rows (empty, comments only, or statements with no `INSERT INTO` or `COPY ... FROM`), `12` is absent while `09` is present, or `09` is absent while `11` or `13`, whose rows are keyed to its mappings, still has rows. Comments are read as Postgres reads them, with block comments nesting, and an `INSERT` inside a comment or a string literal is not a row. The output names each file.
 - **Part labels (06):** a control part's label is not a marker shape the renderer can punctuate: bare (`a`, `12`), period-suffixed (`a.`), or bracketed (`(a)`, `[1]`).
 - **Baseline badge glyphs (every file):** a baseline glyph survived into seeded text, where the modal would show it raw. Scanning no files is also a failure.
 - **Zero Trust mappings (09):** an invalid pillar or maturity value, an empty pillars array, or a NULL in a NOT NULL column (`id`, the control key, `function`, `maturityLevel`, `createdById`). Each row is read by column name from the INSERT's column list, and the guidance check below reads the same rows. A missing column list, a missing required column, a row whose value count does not match the list, a row not written one value per line, or no rows at all fails the run.
@@ -29,10 +29,10 @@ Run it from the repository root: the seed directory is a relative path. No datab
 ## Exit semantics
 
 - `0`: every check passed, or the catalog has no Zero Trust overlay and the backbone checks passed.
-- `1`: a check failed, a seed file it reads is missing, the catalog does not exist, or `--catalog=` was given with no name. A missing file does not end the run: the checks that do not read it still run and report.
+- `1`: a check failed, a seed file it reads is missing, the catalog does not exist, or `--catalog=` was given with no name. A missing file does not end the run: the checks that do not read it still run and report. The exception is `09`: the run ends at its absence, after the backbone files' presence check, the part-label check and the badge-glyph scan. The `07` parameter and `04` discussion-link checks sit after it, so they do not run on a catalog without `09`.
 
 ## Notes
 
-- A catalog without `09-zt-mappings.sql` is a backbone-only seed: the overlay checks (09 and 12) are skipped and the run says so.
+- A catalog without `09-zt-mappings.sql` is a backbone-only seed: the overlay checks (09 and 12) are skipped and the run says so. If `11` or `13` still inserts rows, which are keyed to the mappings `09` seeds, the run fails instead, since the seed would fail at that file. The guidance and reference files do not depend on `09`.
 - `07-control-parameters.sql` is intentionally empty for NIST SP 800-53, which assigns no parameter values, so the parameter check can only pass on the committed seed. Its tests cover it with synthetic values.
 - `scripts/test_check_seed_sql.py` gives each check a clean case, a broken case, and a case proving the script exits 1 on that defect. It runs in `make ci-test-python` and `make test-seed-checks`. See [docs/testing.md](../testing.md).

@@ -64,7 +64,6 @@ function makeDetail(
     discussion: null,
     reviewFrequency: null,
     assessmentFrequency: null,
-    priority: null,
     status: "zero-trust-aligned",
     parts: [],
     ztLinks,
@@ -87,7 +86,7 @@ describe("partRowClassName (ZT coverage teal marker)", () => {
   it("joins the teal border classes as separate tokens when covered", () => {
     const tokens = partRowClassName("ml-2", true).split(/\s+/).filter(Boolean);
     expect(tokens).toContain("border-l-2");
-    expect(tokens).toContain("border-teal-400");
+    expect(tokens).toContain("border-zt");
     expect(tokens).toContain("pl-2");
     expect(tokens).toContain("pt-2");
     // Regression: base + conditional must NOT merge into an invalid "pt-2border-l-2" token.
@@ -97,14 +96,14 @@ describe("partRowClassName (ZT coverage teal marker)", () => {
   it("adds the highlight as separate tokens when the item is in focus", () => {
     const tokens = partRowClassName("ml-2", true, true).split(/\s+/);
     expect(tokens).toEqual(
-      expect.arrayContaining(["border-teal-400", "bg-yellow-100", "ring-2"]),
+      expect.arrayContaining(["border-zt", "bg-highlight", "ring-2"]),
     );
     expect(partRowClassName("ml-2", false)).not.toContain("ring-2");
   });
 
   it("omits the teal border classes when not covered", () => {
     const cls = partRowClassName("ml-2", false);
-    expect(cls).not.toContain("teal");
+    expect(cls).not.toContain("border-zt");
     expect(cls).not.toContain("border-l-2");
   });
 });
@@ -117,7 +116,7 @@ describe("StructuredStatement teal rendering", () => {
       />,
     );
     expect(screen.getByText("Covered subcontrol.")).toBeInTheDocument();
-    expect(container.querySelector(".border-teal-400")).not.toBeNull();
+    expect(container.querySelector(".border-zt")).not.toBeNull();
   });
 
   it("renders no teal border on an uncovered part", () => {
@@ -126,7 +125,7 @@ describe("StructuredStatement teal rendering", () => {
         parts={[makePart({ ztCovered: false, prose: "Plain subcontrol." })]}
       />,
     );
-    expect(container.querySelector(".border-teal-400")).toBeNull();
+    expect(container.querySelector(".border-zt")).toBeNull();
   });
 });
 
@@ -434,8 +433,8 @@ describe("ZTPane single/multi consistency", () => {
     );
     // The pending sentinel text is shown...
     expect(screen.getByText(PENDING)).toBeInTheDocument();
-    // ...but NOT as an "aligned" block: no emerald maturity colour for this block.
-    expect(container.querySelector(".text-emerald-600")).toBeNull();
+    // ...but NOT as an "aligned" block: no green maturity color for this block.
+    expect(container.querySelector(".text-success")).toBeNull();
     // The maturity label still shows, in a muted treatment.
     expect(screen.getByText("ADVANCED")).toBeInTheDocument();
   });
@@ -459,7 +458,7 @@ describe("ZTPane single/multi consistency", () => {
     );
     expect(screen.getByText("Real resolved guidance.")).toBeInTheDocument();
     // Resolved guidance keeps the emerald "aligned" treatment.
-    expect(container.querySelector(".text-emerald-600")).not.toBeNull();
+    expect(container.querySelector(".text-success")).not.toBeNull();
   });
 
   it("shows CISA's designation and If Applicable flag on each tuple that carries them", () => {
@@ -838,7 +837,7 @@ describe("StructuredStatement — item node with no prose", () => {
     const part: PartNode = makePart({ prose: null, label: "d" });
     const { container } = render(<StructuredStatement parts={[part]} />);
     // The label badge should render
-    expect(container.querySelector(".bg-slate-200")).not.toBeNull();
+    expect(container.querySelector(".bg-surface-strong")).not.toBeNull();
   });
 });
 
@@ -1055,7 +1054,7 @@ describe("StructuredStatement — nested children (recursive depth)", () => {
     });
     const { container } = render(<StructuredStatement parts={[child]} />);
     // The grandchild itself has teal border; the uncovered child does not
-    const tealBordered = container.querySelectorAll(".border-teal-400");
+    const tealBordered = container.querySelectorAll(".border-zt");
     expect(tealBordered.length).toBeGreaterThan(0);
   });
 });

@@ -70,7 +70,6 @@ const DETAIL = {
   discussion: null,
   reviewFrequency: null,
   assessmentFrequency: null,
-  priority: null,
   status: "zero-trust-aligned",
   parts: [],
   ztLinks: [],

@@ -1,200 +1,180 @@
-# Production database recovery (PITR) + restore drill
+# Database recovery (single-AZ)
 
-How to recover the prod ZT Decoder Ring database from a point-in-time backup, the
-RTO/RPO targets we hold ourselves to, how to detect that recovery is needed, and how to run
-a restore drill so the procedure is proven before a real incident.
+How to recover the ZT Decoder Ring database when the instance is lost or its data is damaged, in prod or dev, with `scripts/db-recover.sh`. This is the one recovery runbook. [`rds-snapshot-restore.md`](./rds-snapshot-restore.md) holds the AWS commands the script runs, for working by hand when it cannot.
 
-**In scope:** point-in-time restore (PITR) and snapshot restore of the prod database, and
-the app cutover onto the restored instance.
+Names below follow the stacks: every resource is named `<name_prefix>-<env>-...`, where `name_prefix` is the stacks' variable, `ztdr` unless your deployment sets another. The scripts and Make targets take the same value as `NAME_PREFIX`. `<prod-profile>` and `<dev-profile>` stand for the AWS profiles your organisation issues for each environment's deploy role, and the commands use `us-east-1`, the stacks' default region; set `AWS_REGION` and `--region` to yours if it differs.
 
-**First, check whether a restore is needed at all.** Every catalog table is loaded from the
-seed in the image, so lost or corrupted catalog data is rebuilt in minutes with
-`make ecs-run-migrate ENV=prod` and then `make ecs-run-seed ENV=prod`. PITR is for what the
-seed does not hold: the user, account and session rows sign-in writes when an OIDC provider
-is configured.
-**Out of scope (explicitly):** cross-region replication and automated failover — not part
-of the current prod posture.
+## The recovery path
 
-## Database shape (confirm before a real restore)
+Each environment runs one RDS for PostgreSQL instance, `<name_prefix>-<env>`, in one Availability Zone, on the database module's `db.t4g.micro` default. There is no standby to fail over to. Losing the instance, or its data, is recovered by restoring a snapshot, or a point in time, to a new instance and pointing the app at it.
 
-Prod runs the `terraform-aws-modules/rds/aws` module as a single `postgres` instance
-(`infra/modules/database/main.tf`, engine `postgres` 16.13), with:
+A standby is yours to choose: `multi_az` on the rds module in `infra/modules/database`. It shortens recovery from an Availability Zone or hardware failure and does nothing for lost or corrupted data, which only a restore recovers, so this runbook applies either way. How long a recovery may take is your recovery time objective to set; [RTO and RPO](#rto-and-rpo) gives reference figures. Until the cutover, the app reads the damaged instance, or nothing if that instance cannot serve.
 
-- `manage_master_user_password = true` — the master credential is an **RDS-managed**
-  Secrets Manager secret. **This is load-bearing for recovery — see the gotcha below.**
-- A custom DB parameter group enforcing `rds.force_ssl = 1` (SC-8).
-- `storage_encrypted = true`, with the AWS-managed `aws/rds` key (the module passes no `kms_key_id`).
-- Backups governed by `db_backup_retention_period` (an environment input, set in the env tfvars).
+`scripts/db-recover.sh` does the whole path, from a workstation (`make db-recover`) or from a manually triggered workflow your repository can enable. It runs three phases:
 
-> If prod is ever migrated to an **Aurora PostgreSQL cluster**, the restore verb changes
-> from `restore-db-instance-to-point-in-time` to
-> `restore-db-cluster-to-point-in-time`, and note that **Aurora Backtrack is not available
-> for Aurora PostgreSQL** (MySQL-only) — so backtrack is not an RTO lever here either way.
-> Reconcile the actual prod engine before relying on this runbook verbatim.
+1. **Restore.** It reads the live instance's configuration, checks the app reads that instance and that a snapshot given is that instance's own, restores the snapshot or point in time to a new instance with that configuration, gives the new instance an RDS-managed master secret under the live secret's KMS key, copies the live secret's rotation schedule to it, and confirms the configuration carried across: class, subnet group, security groups, parameter group, storage type, encryption at rest and its KMS key, the CloudWatch log exports, IAM database authentication, the CA certificate, multi-AZ, deletion protection and backup retention each equal the live instance's, the new instance is not publicly accessible, and its managed secret is active. Any difference stops the run before the cutover, naming the setting.
+2. **Cutover.** It points the app at the new instance through Terraform, by planning with `db_restored_instance_identifier` set and with the image the app already runs. It applies only when every change in the plan is part of the app's database wiring: the task definitions replaced, the app service and the two task-role secret grants updated, the RDS alarms moved, the rotation Lambda's packaging step rebuilt, data sources read. Anything else refuses the plan, with each refused address listed and nothing applied. Then it waits for the app service to settle.
+3. **Verify.** It confirms the app service reads the new instance and the load balancer's targets are healthy, then runs a one-off task inside the VPC that checks every table the deployed image's seed loads holds the rows the seed writes, and that every migration the image carries is applied.
 
-## RTO / RPO targets
+It is safe by default. Without `CONFIRM=yes` (`--execute`) it prints every step and calls nothing. It never changes or deletes the live instance: the live instance is only described, or named as the source of a point-in-time restore, and the cutover refuses any Terraform plan that would change the database module. Each step prints the time it started, so a run's timings can be recorded.
 
-Targets (adjust them to your own service levels):
+Do not cut over by hand, by registering a task definition with the restored host and secret and pointing the service at it. Terraform owns that wiring, and the next `terraform apply` puts the app back on the original instance. `db_restored_instance_identifier` is the cutover Terraform keeps.
 
-- **RPO ≤ 5 minutes.** RDS streams transaction logs to S3 roughly every 5 minutes, so the
-  most recent restorable point (`LatestRestorableTime`) typically lags ~5 minutes behind
-  now. This is a floor imposed by RDS; you cannot restore closer than that with PITR. The
-  *window* you can restore within is bounded above by `backup_retention_period`.
-- **RTO ≤ 2 hours.** A PITR provisions a brand-new instance (single-digit minutes to
-  ~30+ min depending on size), then the post-restore reconfiguration + app cutover below
-  add time. Multi-AZ, which this configuration does not enable, would shorten recovery for an
-  *AZ/hardware* failure but
-  does **not** help logical corruption — only a restore does.
+## When the script applies
 
-Revisit them after the first real drill (the drill's measured wall-clock is the honest RTO).
+The script recovers `<name_prefix>-<env>` while that instance still exists, however damaged: its data lost or corrupted, or the instance unable to serve. It copies the instance's configuration from it and leaves it in place, and the database module goes on managing it.
 
-## Detection — when to invoke this runbook
+An instance that is gone, deleted, is outside what the script does: it stops at its first step, which reads the live instance. Recover a gone instance by hand, as [`rds-snapshot-restore.md`](./rds-snapshot-restore.md#when-the-instance-is-gone) describes. That path also has to settle Terraform, whose state still records the deleted instance, and has not been rehearsed; walk it in dev before relying on it.
 
-Restore is the right tool for **data loss or logical corruption**, not for an app that's
-simply down. Invoke when:
+## First, check whether a restore is needed
 
-- A destructive migration or bad bulk operation dropped/corrupted data and rolling forward
-  can't recover it (see [`prod-deploy.md`](./prod-deploy.md) rollback section).
-- Data integrity alarms / user reports indicate corruption with a known "good before" time.
-- The instance is unrecoverable (storage failure) and there is no faster path.
+Every catalog table is loaded from the seed in the image, so lost or corrupted catalog data is rebuilt in minutes with `make ecs-run-migrate ENV=<env>` and then `make ecs-run-seed ENV=<env>`. A restore is for what the seed does not hold: the user, account and session rows sign-in writes when an OIDC provider is configured, or an instance that cannot serve.
 
-Do **not** restore for: a stale-credential outage (that's a redeploy — see
-[`secret-rotation-auto-redeploy.md`](./secret-rotation-auto-redeploy.md) /
-[`ecs-migration-and-seed.md`](./ecs-migration-and-seed.md)), an app bug, or an AZ blip on a
-Multi-AZ instance (it fails over automatically).
+Do not restore for a stale-credential outage, which is a redeploy ([`ecs-migration-and-seed.md`](./ecs-migration-and-seed.md), `make ecs-redeploy`), or for an app bug.
 
-First, pin the target restore time (just before the bad event):
+## Choose the source
+
+Recover the instance the app reads. That is `<name_prefix>-<env>`, unless an earlier recovery is still serving; the script checks, and refuses to restore `<name_prefix>-<env>` when the app reads another instance, since that would lose every write made since. To see which instance the app reads, take the first label of its `DB_HOST`:
 
 ```bash
-export AWS_PROFILE=<prod-deploy-profile>
-AWS_PROFILE=$AWS_PROFILE aws rds describe-db-instances --db-instance-identifier ztdr-prod \
+PREFIX=ztdr   # your stacks' name_prefix
+TD=$(aws ecs describe-services --cluster "$PREFIX-prod" --services "$PREFIX-prod-app" --region us-east-1 --no-cli-pager \
+  --query 'services[0].taskDefinition' --output text)
+aws ecs describe-task-definition --task-definition "$TD" --region us-east-1 --no-cli-pager \
+  --query "taskDefinition.containerDefinitions[?name=='app'] | [0].environment[?name=='DB_HOST'] | [0].value" --output text
+LIVE="$PREFIX-prod"   # the first label of the host above
+```
+
+If it is not `<name_prefix>-<env>`, the script cannot recover it: restore it by hand ([`rds-snapshot-restore.md`](./rds-snapshot-restore.md) with that `LIVE`), or first bring it under Terraform as `<name_prefix>-<env>` ([Terraform after the cutover](#terraform-after-the-cutover)).
+
+A snapshot, the most recent automated ones first. It must be a snapshot of `$LIVE`: the script refuses a snapshot of any other instance, naming the instance it came from.
+
+```bash
+aws rds describe-db-snapshots --db-instance-identifier "$LIVE" --snapshot-type automated \
   --region us-east-1 --no-cli-pager \
-  --query 'DBInstances[0].{Latest:LatestRestorableTime,Earliest:null}'
-AWS_PROFILE=$AWS_PROFILE aws rds describe-db-instances --db-instance-identifier ztdr-prod \
-  --region us-east-1 --no-cli-pager --query 'DBInstances[0].InstanceCreateTime'
+  --query 'reverse(sort_by(DBSnapshots,&SnapshotCreateTime))[:5].[DBSnapshotIdentifier,SnapshotCreateTime,Status]' --output table
 ```
 
-## Restore procedure
-
-PITR always creates a **new** instance (`ztdr-prod-restore` below); the original is left
-untouched. The app must then be cut over to the new endpoint.
-
-### 1. Restore to a new instance
-
-Pass the live instance's subnet group, security group and parameter group on the restore
-call. A PITR restore given none of them comes up with the **default** security group, DB
-subnet group and parameter group — the app cannot reach it and SSL enforcement (SC-8) is
-silently lost — and the subnet group is the hardest of the three to change afterwards.
+Or a point in time just before the bad event, no later than the latest restorable time, which typically trails now by about five minutes. The backup retention period bounds how far back a restore can reach: prod's committed `terraform.tfvars` keeps 30 days (`db_backup_retention_period`), and dev keeps the database module's default of 7.
 
 ```bash
-AWS_PROFILE=$AWS_PROFILE aws rds restore-db-instance-to-point-in-time \
-  --source-db-instance-identifier ztdr-prod \
-  --target-db-instance-identifier ztdr-prod-restore \
-  --restore-time 2026-06-04T14:30:00Z \
-  --db-subnet-group-name <ztdr-prod-db-subnet-group> \
-  --vpc-security-group-ids <ztdr-prod-db-sg-id> \
-  --db-parameter-group-name <ztdr-prod-force-ssl-param-group> \
-  --no-multi-az --no-publicly-accessible \
-  --region us-east-1 --no-cli-pager
+aws rds describe-db-instances --db-instance-identifier "$LIVE" --region us-east-1 --no-cli-pager \
+  --query 'DBInstances[0].LatestRestorableTime'
 ```
 
-(Use `--use-latest-restorable-time` instead of `--restore-time` to go to the most recent
-point. Read the three values from the live instance, as step 1 of
-[`rds-snapshot-restore.md`](./rds-snapshot-restore.md) does; the instance class defaults to
-the source's.)
+## Run it from a workstation
 
-### 2. Confirm the non-default configuration carried ⚠️
+With the environment's credentials (`<prod-profile>` or `<dev-profile>`) and `aws`, `jq` and `terraform` on the path. The cutover runs Terraform in `infra/environments/<env>` as an apply from that workstation would: with the stack's `backend.hcl` beside it (a copy of `backend.hcl.example` holding `infra/bootstrap`'s output `environment_backend_config`), or with the directory already initialised against the state bucket, and with the `*.auto.tfvars` files that supply the stack's inputs (`vpc_id`, `subnet_name_prefix`, `app_fqdn`, and any others the deployment sets). A plan missing a required input fails; one missing an optional input the deployment sets, such as `alarm_email_endpoints`, plans a change the cutover refuses.
+
+**Permissions.** Beyond what a `terraform apply` of the environment needs, the operator's role needs:
+
+- RDS: `DescribeDBInstances`, `DescribeDBSnapshots`, `RestoreDBInstanceFromDBSnapshot`, `RestoreDBInstanceToPointInTime`, `ModifyDBInstance`, `AddTagsToResource`. `RestoreDBInstanceToPointInTime` is what `RESTORE_TIME` and `LATEST` call, and a role scoped for day-to-day applies often lacks it, so check it before relying on either.
+- The managed master secret: `kms:DescribeKey`, `secretsmanager:CreateSecret` and `secretsmanager:TagResource`, and with a customer managed key, `kms:Decrypt`, `kms:GenerateDataKey` and `kms:CreateGrant` on that key. `secretsmanager:DescribeSecret` on the live secret and `secretsmanager:RotateSecret` on the new one copy the rotation schedule.
+- ECS and the rest: `ecs:DescribeServices`, `ecs:DescribeTaskDefinition`, `ecs:RunTask` and `ecs:DescribeTasks`, `iam:PassRole` for the task roles, `elasticloadbalancing:DescribeTargetGroups` and `DescribeTargetHealth`, and `logs:GetLogEvents` on the app's log group.
 
 ```bash
-AWS_PROFILE=$AWS_PROFILE aws rds describe-db-instances --db-instance-identifier ztdr-prod-restore \
+# Print every step; calls nothing
+AWS_PROFILE=<prod-profile> make db-recover ENV=prod SNAPSHOT=<snapshot-id>
+
+# Run it
+AWS_PROFILE=<prod-profile> make db-recover ENV=prod SNAPSHOT=<snapshot-id> CONFIRM=yes
+```
+
+- `NAME_PREFIX=<prefix>` when the stacks deploy with a `name_prefix` other than `ztdr`. It must match the stack's: the Terraform variable accepts a restored instance only under the stack's own prefix, so a mismatch stops at the cutover's plan, before anything is applied.
+- The source is one of `SNAPSHOT=<id>`, `RESTORE_TIME=<YYYY-MM-DDTHH:MM:SSZ>` (UTC) or `LATEST=yes`.
+- `TARGET=<id>` names the new instance. It must be `<name_prefix>-<env>-<suffix>`. Without it the script names one for the minute the restore starts, `<name_prefix>-<env>-recovered-<YYYYMMDD-HHMM>`. Every run prints its target as a `Target:` line.
+- `PHASE=restore`, `PHASE=cutover` or `PHASE=verify` runs one phase. Cutover and verify need `TARGET`.
+- A run that stops partway can be started again with the same arguments, on another day too. The restore tags the instance it creates with `<name_prefix>-recovery-of` and `<name_prefix>-recovery-source`, and a run without `TARGET` finds it by those tags and resumes on it if it was created in the last 48 hours. It refuses when more than one instance matches, and lists them. With `TARGET`, it resumes only on an instance carrying both tags for this recovery, and refuses any other existing instance.
+- Run `make check-deploy-safety ENV=<env>` first, as before any apply. The cutover passes the running image tag to Terraform, so it does not move the image, but the plan still carries anything else that differs between the configuration and the running environment, and the script refuses a plan that does.
+
+## Run it from CI
+
+`.github/workflows-export/db-recover.yml` holds the same `make db-recover` as a manually triggered workflow, commented out like the gates beside it, since this repository runs no workflow of its own. Its header says how to enable it: copy it into `.github/workflows/`, uncomment it, and give each GitHub Environment what the job needs. Its inputs are the environment, the phase, one source, the target and an `execute` box, which is unticked by default, so a run prints the steps and calls nothing.
+
+- **Credentials.** The job assumes an AWS role through GitHub OIDC. The role ARN is the `DB_RECOVER_ROLE_ARN` variable of the GitHub Environment the job runs in, `dev` or `prod`. The role needs the permissions listed above and what a `terraform apply` of the environment needs, including its state bucket, and a maximum session of at least six hours.
+- **The stack's backend and inputs.** What a workstation keeps out of the repository reaches the job from the Environment: `TF_BACKEND_HCL`, a variable holding the stack's `backend.hcl`; `NAME_PREFIX`, a variable, when the prefix is not `ztdr`; and `TF_AUTO_TFVARS`, a secret holding every input the workstation's `*.auto.tfvars` supply. Leave out an optional input the deployment sets and the cutover plans a change to it, which the script refuses, applying nothing.
+- **Approval.** The `prod` Environment needs a deployment protection rule that requires approval, so a prod run waits until someone named in the rule approves it, and its deployment branches restricted to the default branch, so the job never runs code that has not merged.
+- **Time.** A GitHub-hosted job stops after six hours. A restore that takes longer is picked up by running the workflow again with the same inputs, as above.
+
+## Terraform after the cutover
+
+The database is Terraform-managed, and the cutover goes through Terraform rather than around it. `db_restored_instance_identifier`, a variable in each environment's stack, names the restored instance. While it is set, Terraform reads that instance (a data source) and points the app's task definitions, its task role's secret grant and the migrate and seed tasks at it, and the RDS CPU and free-storage alarms watch it instead of the original. The database module goes on managing `<name_prefix>-<env>`, which the recovery never changed, and the secret rotation schedule Terraform pins stays on that instance's secret; the script copied it to the new secret instead.
+
+The script passes the variable on the command line, so the change lives only in that apply. **Commit it next, before any other apply:**
+
+```hcl
+# infra/environments/<env>/terraform.tfvars: the Target: line the run printed
+db_restored_instance_identifier = "ztdr-prod-recovered-20261105-1430"
+```
+
+Until that merges, any other `terraform apply` of the environment, including `make deploy`, points the app back at `<name_prefix>-<env>`. If the cutover's plan was refused, the script prints the resources that blocked it and applies nothing.
+
+The app then reads an instance Terraform does not manage. The script gave it the live instance's deletion protection, backup retention and windows, and its tags less `ManagedBy`, so it is protected while it serves. What follows is a decision for a calm window, not part of the recovery:
+
+- **Keep it.** Leave the variable set. The original `<name_prefix>-<env>` stays in state, unchanged; it can be stopped or snapshotted by hand once nobody needs it.
+- **Bring it under Terraform.** Retire the original by hand (snapshot it, turn off its deletion protection, delete it), then move the restored instance into the database module's state address with `terraform state rm` and `terraform import`, unset the variable, and apply only once `terraform plan` shows no destructive change to the database. The module names the instance `<name_prefix>-<env>`, so the import needs the restored instance renamed first, and that is a change worth rehearsing in dev.
+
+## When the verify phase reports a difference
+
+The check compares the restored database with the seed in the image the app runs.
+
+- **A seeded table differs.** The snapshot predates the image's last reseed, or a point-in-time restore landed during one. Reload the catalog with `make ecs-run-seed ENV=<env>` (it does not touch user, account or session rows) and run `make db-recover ENV=<env> PHASE=verify TARGET=<id> CONFIRM=yes` again.
+- **A migration is missing.** The restore predates a migration the image expects. Run `make ecs-run-migrate ENV=<env>`, then the seed, then verify again.
+- **The app reads the wrong host.** The cutover has not run, or an apply since has undone it. Run `PHASE=cutover`.
+- **The check could not run.** It names why. A missing or unknown `SEED_CATALOG` means the seed task definition names no catalog the image carries, which `make ecs-run-seed` would fail on too.
+
+## RTO and RPO
+
+- **RPO.** About five minutes for a point-in-time restore, the lag of RDS's transaction-log upload. For a snapshot, the snapshot's age.
+- **RTO.** Yours to set, and to measure with a rehearsal on your own instance. As reference figures, rehearsals of this script against a `db.t4g.micro` instance with this configuration took, from a snapshot (2026-11-06), 17m 56s from the first step to the app serving from the restored instance (restore 13m 06s, cutover 3m 29s, verify 1m 21s), 11m 13s of it RDS making the restored instance available; and to the latest restorable time (2026-11-09), 37m 38s from the first step to serving, 31m 27s of it RDS. A point-in-time restore took nearly three times as long as a snapshot restore of the same instance, and a larger or busier instance takes longer to restore either way.
+
+## Rehearse it in dev
+
+The procedure that proves the script on your deployment before an incident, run in dev with dev credentials. It changes nothing on `<name_prefix>-dev`: it restores a copy, moves the dev app onto it, checks it, moves the app back and deletes the copy.
+
+```bash
+export AWS_PROFILE=<dev-profile> AWS_REGION=us-east-1
+PREFIX=ztdr   # your stacks' name_prefix
+cd infra/environments/dev && terraform init -backend-config=backend.hcl && cd ../../..
+make check-deploy-safety ENV=dev
+
+# 0. The cutover plan must show only the cutover. A plain `terraform plan` of dev should show
+#    nothing but the rotation Lambda's packaging step. If dev runs an older release than this
+#    checkout, pin the settings it runs with (container_image_tag, and any other that differs) in a
+#    local, gitignored infra/environments/dev/drill.auto.tfvars until it does.
+
+# 1. A recent automated snapshot of the dev instance
+aws rds describe-db-snapshots --db-instance-identifier "$PREFIX-dev" --snapshot-type automated \
   --region us-east-1 --no-cli-pager \
-  --query 'DBInstances[0].{Subnets:DBSubnetGroup.DBSubnetGroupName,SGs:VpcSecurityGroups[].VpcSecurityGroupId,Params:DBParameterGroups[].ParameterGroupName}'
+  --query 'reverse(sort_by(DBSnapshots,&SnapshotCreateTime))[0].DBSnapshotIdentifier' --output text
+
+# 2. Read the dry run, then run it. Keep the output: every step prints its start time.
+#    For a point-in-time run, pass LATEST=yes (or RESTORE_TIME=...) instead of SNAPSHOT, with a TARGET of its own.
+make db-recover ENV=dev NAME_PREFIX="$PREFIX" SNAPSHOT=<snapshot-id> TARGET="$PREFIX-dev-recovered-drill"
+make db-recover ENV=dev NAME_PREFIX="$PREFIX" SNAPSHOT=<snapshot-id> TARGET="$PREFIX-dev-recovered-drill" CONFIRM=yes 2>&1 | tee tmp/db-recover-dev.log
+
+# 3. Move the dev app back to the dev instance: an apply without the variable
+cd infra/environments/dev && terraform plan    # expect the task definitions and the task role's secret grant back on the dev instance
+terraform apply && cd ../../..
+DNS_FQDN_dev=<app_fqdn> make smoke ENV=dev
+
+# 4. Delete the copy; dev's deletion protection is off, which the copy carried
+aws rds delete-db-instance --db-instance-identifier "$PREFIX-dev-recovered-drill" \
+  --skip-final-snapshot --delete-automated-backups --region us-east-1 --no-cli-pager
 ```
 
-If the security group or parameter group is wrong, re-attach it with `modify-db-instance
---vpc-security-group-ids … --db-parameter-group-name … --apply-immediately`; a new parameter
-group takes effect only after a reboot. A wrong subnet group is simplest fixed by restoring
-again with the flag.
+Record each phase's time from the log in the table below, with anything that surprised you. The step numbers are the dry run's: restore is steps 1 to 10, cutover 11 to 17 and verify 18 to 20.
 
-### 3. Re-establish the managed master password ⚠️ (the #1 gotcha)
+### Rehearsal record
 
-For RDS **PostgreSQL**, a PITR does **not** carry over the RDS-managed master password
-(that auto-recreate-on-restore behavior exists only for RDS for Oracle). The restored
-instance has no managed secret, so the app — which reads `DB_SECRET_ARN` — has nothing to
-authenticate with. Re-enable management to mint a fresh managed secret:
+Record your runs here.
 
-```bash
-AWS_PROFILE=$AWS_PROFILE aws rds modify-db-instance --db-instance-identifier ztdr-prod-restore \
-  --manage-master-user-password \
-  --master-user-secret-kms-key-id <prod-master-secret-cmk-arn> \
-  --apply-immediately --region us-east-1 --no-cli-pager
-```
-
-Then capture the new secret ARN for the cutover:
-
-```bash
-AWS_PROFILE=$AWS_PROFILE aws rds describe-db-instances --db-instance-identifier ztdr-prod-restore \
-  --region us-east-1 --no-cli-pager \
-  --query 'DBInstances[0].{Secret:MasterUserSecret.SecretArn,Endpoint:Endpoint.Address}'
-```
-
-### 4. Cut the app over to the restored endpoint
-
-The app reads `DB_HOST` and `DB_SECRET_ARN` from the ECS task-def environment
-(`ecs_service.tf`), wired from `module.database`'s outputs in `main.tf`; they are not
-tfvars inputs. Point them at the restored instance and roll the service. Preferred
-(terraform, keeps state truthful): reconcile state so `module.database` is the restored
-instance, as in [`rds-snapshot-restore.md`](./rds-snapshot-restore.md) step 6 (`terraform
-state rm` the old `aws_db_instance`, `terraform import` the restored one, and confirm the
-plan shows no destructive diff), then apply. The fast path is the break-glass task-definition
-revision in that runbook's step 5.
-
-```bash
-cd infra/environments/prod
-AWS_PROFILE=$AWS_PROFILE terraform apply         # repoints task def + forces redeploy
-AWS_PROFILE=$AWS_PROFILE aws ecs wait services-stable --cluster ztdr-prod --services ztdr-prod-app --region us-east-1
-```
-
-Verify per [`prod-deploy.md`](./prod-deploy.md#post-deploy-verification) (health + a data
-tRPC call).
-
-### 5. Promote / clean up
-
-Once the restored instance is confirmed healthy and serving, decide the steady-state shape:
-either keep `ztdr-prod-restore` as the new prod (rename/re-import into the canonical
-terraform identifier; the instance is guarded by `deletion_protection`, the
-`db_deletion_protection` input, not by `prevent_destroy`), or, if you restored only to
-extract data, copy what's needed back into the original and decommission the restore. Either
-way, reconcile terraform state so the live instance matches the module — do not leave a
-hand-restored instance unmanaged.
-
-## Restore drill
-
-Prove the procedure ~quarterly (and after any change to the DB module) **without touching
-real prod traffic**:
-
-1. Run steps 1–3 against prod to produce `ztdr-prod-drill-<date>` (use a drill-specific
-   target id; do **not** cut the app over).
-2. Connect to the drill instance from a one-off task or bastion and validate: row counts in
-   key tables (e.g. 20 control families, 1,014 controls with `status = 'LIVE'` and 182
-   `WITHDRAWN`, 203 `ControlLineage` rows), `rds.force_ssl` is on, and a
-   `sslmode=verify-full` connection succeeds.
-3. **Measure wall-clock** from "restore initiated" to "validated" — that is your real RTO;
-   compare to target and update the targets section.
-4. Tear the drill instance down (`aws rds delete-db-instance --db-instance-identifier
-   ztdr-prod-drill-<date> --skip-final-snapshot`).
-5. Record the drill date, measured RTO, and any surprises in this runbook.
-
-## RTO/RPO levers (for tuning, not part of the restore itself)
-
-- **`db_backup_retention_period`** — sets how far back PITR can reach (the restore *window*).
-  Longer retention = more recovery options; prod keeps 30 days.
-- **Multi-AZ** (not enabled in this configuration) — faster recovery from AZ/hardware failure (automatic failover); does
-  not help corruption.
-- **Pre-staged restore terraform** — having the cutover tfvars changes scripted shortens RTO
-  vs. doing it by hand under pressure.
+| Date | Source | Restore (steps 1-10) | Cutover (steps 11-17) | Verify (steps 18-20) | Move back and delete | Script time | Notes |
+|---|---|---|---|---|---|---|---|
 
 ## Related runbooks
 
-- [`prod-deploy.md`](./prod-deploy.md) — deploy + rollback; routes destructive-migration data loss here.
-- [`ecs-migration-and-seed.md`](./ecs-migration-and-seed.md) — migrate/seed tasks (and the stale-credential redeploy that is *not* a restore).
+- [`rds-snapshot-restore.md`](./rds-snapshot-restore.md): the AWS commands behind each step, for restoring by hand when the script cannot run, and the restore-only drill (`make db-dr-test`).
+- [`prod-deploy.md`](./prod-deploy.md): deploy and rollback; routes data loss from a destructive migration here.
+- [`ecs-migration-and-seed.md`](./ecs-migration-and-seed.md): the migrate and seed tasks, and the stale-credential redeploy that is not a restore.
+- [`secret-rotation-auto-redeploy.md`](./secret-rotation-auto-redeploy.md): the rotation schedule and the redeploy that follows each rotation.

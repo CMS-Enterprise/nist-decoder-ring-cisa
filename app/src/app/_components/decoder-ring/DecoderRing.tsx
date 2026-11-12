@@ -12,6 +12,8 @@ import FilterBar from "./FilterBar";
 import SearchTypeahead from "./SearchTypeahead";
 import { controlHref } from "./filterParams";
 import { product } from "~/config/product";
+import { appVersion } from "~/config/version";
+import ThemeToggle from "~/app/_components/theme/ThemeToggle";
 
 // The export page opens on the diagram's facets and search, carried in the URL.
 const toExport = createSerializer(FILTER_PARSERS);
@@ -75,24 +77,27 @@ export default function DecoderRing({
     controlHref(controlNumber, null, filterSearch);
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-blue-200">
+    <div className="bg-surface-canvas text-ink selection:bg-accent-muted min-h-screen font-sans">
       {/* HEADER SECTION */}
-      <header className="border-b border-slate-200 bg-white px-6 pt-3 pb-3 shadow-sm">
-        {headerAccessory}
+      <header className="border-border bg-surface border-b px-6 pt-3 pb-3 shadow-sm">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-3">
+          <ThemeToggle />
+          {headerAccessory}
+        </div>
         <div className="mx-auto max-w-6xl text-center">
-          <h1 className="mb-2 text-3xl font-black tracking-tight text-slate-800 md:text-4xl">
+          <h1 className="text-ink mb-2 text-3xl font-black tracking-tight md:text-4xl">
             {product.bannerEyebrow}{" "}
-            <span className="bg-gradient-to-br from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+            <span className="from-accent to-zt bg-gradient-to-br bg-clip-text text-transparent">
               DECODER RING
             </span>
           </h1>
-          <p className="mx-auto max-w-3xl text-sm leading-relaxed text-slate-600">
+          <p className="text-ink-muted mx-auto max-w-3xl text-sm leading-relaxed">
             A visual bridge between{" "}
-            <span className="font-semibold text-slate-800">
+            <span className="text-ink font-semibold">
               {product.bannerTitle}
             </span>{" "}
             and{" "}
-            <span className="font-semibold text-slate-800">
+            <span className="text-ink font-semibold">
               Zero Trust Architecture
             </span>
             . Select a control below to view specific implementation guidance.
@@ -104,8 +109,8 @@ export default function DecoderRing({
       {isLoading && (
         <div className="flex min-h-[400px] items-center justify-center">
           <div className="text-center">
-            <div className="mb-4 inline-block h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
-            <p className="text-slate-600">{product.loadingMessage}</p>
+            <div className="border-accent mb-4 inline-block h-12 w-12 animate-spin rounded-full border-4 border-t-transparent"></div>
+            <p className="text-ink-muted">{product.loadingMessage}</p>
           </div>
         </div>
       )}
@@ -113,11 +118,11 @@ export default function DecoderRing({
       {/* ERROR STATE */}
       {error && (
         <div className="mx-auto max-w-3xl p-8">
-          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-            <p className="text-lg font-semibold text-red-900">
+          <div className="border-error/30 bg-error-subtle rounded-lg border p-6 text-center">
+            <p className="text-error text-lg font-semibold">
               Failed to load controls
             </p>
-            <p className="mt-2 text-sm text-red-700">{error.message}</p>
+            <p className="text-error mt-2 text-sm">{error.message}</p>
           </div>
         </div>
       )}
@@ -131,7 +136,7 @@ export default function DecoderRing({
               <SearchTypeahead hrefFor={hrefFor} />
               <Link
                 href={toExport("/export", query)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="border-border-strong bg-surface text-ink hover:bg-surface-muted rounded-lg border px-3 py-1.5 text-sm font-medium"
               >
                 {isActive ? "Export this view" : "Export"}
               </Link>
@@ -160,8 +165,9 @@ export default function DecoderRing({
       )}
 
       {/* FOOTER */}
-      <footer className="border-t border-slate-200 py-8 text-center text-sm text-slate-400">
+      <footer className="border-border text-ink-muted border-t py-8 text-center text-sm">
         <p>{product.footerAttribution}</p>
+        {appVersion && <p className="mt-1 text-xs">v{appVersion}</p>}
       </footer>
     </div>
   );

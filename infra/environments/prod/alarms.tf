@@ -24,9 +24,11 @@ locals {
   # ALB and target-group CloudWatch dimensions take the *arn suffix*, not
   # the full ARN. We extract via regex on the existing module outputs to
   # avoid extending the compute module's outputs surface.
-  alb_arn_suffix       = regex("loadbalancer/(app/.+)$", module.compute.alb_arn)[0]
-  ecs_tg_arn_suffix    = regex("(targetgroup/[^:]+)$", module.compute.alb_target_group_ecs_arn)[0]
-  db_instance_id       = "${var.name_prefix}-${var.environment}"
+  alb_arn_suffix    = regex("loadbalancer/(app/.+)$", module.compute.alb_arn)[0]
+  ecs_tg_arn_suffix = regex("(targetgroup/[^:]+)$", module.compute.alb_target_group_ecs_arn)[0]
+  # The instance the app reads: a restored one while db_restored_instance_identifier
+  # names it (main.tf), so the RDS alarms follow a recovery's cutover.
+  db_instance_id       = coalesce(var.db_restored_instance_identifier, "${var.name_prefix}-${var.environment}")
   rds_free_storage_min = 4 * 1024 * 1024 * 1024 # 4 GiB ≈ 20% of 20 GiB allocated
   alarm_tags = merge(local.tags, {
     Component = "alerts"

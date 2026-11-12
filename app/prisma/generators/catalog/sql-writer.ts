@@ -116,6 +116,8 @@ function header(file: string, note: string): string {
  *  it makes the dependency visible to a reader of the file. */
 export function writeCleanupSql(outputDir: string, note: string): void {
   const tables = [
+    "Fips200Requirement",
+    "FipsImpactLevel",
     "ControlLineage",
     "NistControlExternalEntity",
     "ExternalEntity",
@@ -218,15 +220,15 @@ export function writeControlsSql(
     return (
       `  (${esc(id)}, ${esc(c.controlNumber)}, ${esc(c.controlName)}, ${esc(c.guidance)}, ` +
       `${esc(c.oscalId)}, ${esc(c.sortId)}, NULL, NULL, ${textArray(c.baselineLabels)}, ` +
-      `NULL, ${textArray(c.relatedControls)}, NULL, ${esc(c.familyId)}, ${esc(scheme.versionRowId)}, ` +
+      `${textArray(c.relatedControls)}, NULL, ${esc(c.familyId)}, ${esc(scheme.versionRowId)}, ` +
       `${esc(SYSTEM_USER_ID)}, ${esc(SYSTEM_USER_ID)}, NOW(), NOW())`
     );
   });
   const sql =
     header("04-controls.sql", `${note}\n-- ${controls.length} controls`) +
-    `-- reviewFrequency, assessmentFrequency, priority and referencePolicy are NULL:\n` +
+    `-- reviewFrequency, assessmentFrequency and referencePolicy are NULL:\n` +
     `-- the stock catalog states none of them. A tailoring authority fills them.\n` +
-    `INSERT INTO "NistControl" ("id", "controlNumber", "controlName", "discussion", "oscalId", "sortId", "reviewFrequency", "assessmentFrequency", "baselineLabels", "priority", "relatedControls", "referencePolicy", "controlFamilyId", "nistVersionId", "createdById", "updatedById", "createdAt", "updatedAt")\n` +
+    `INSERT INTO "NistControl" ("id", "controlNumber", "controlName", "discussion", "oscalId", "sortId", "reviewFrequency", "assessmentFrequency", "baselineLabels", "relatedControls", "referencePolicy", "controlFamilyId", "nistVersionId", "createdById", "updatedById", "createdAt", "updatedAt")\n` +
     `VALUES\n${rows.join(",\n")}\nON CONFLICT ("id") DO NOTHING;\n`;
   writeFileSync(join(outputDir, "04-controls.sql"), sql);
 }

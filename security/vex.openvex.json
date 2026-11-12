@@ -1,0 +1,138 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "urn:uuid:9f8b5be7-d34e-4110-b02c-6b1fc5e67f5d",
+  "author": "ISPG Zero Trust Team",
+  "timestamp": "2026-11-06T23:28:57Z",
+  "last_updated": "2026-11-10T08:49:05Z",
+  "version": 3,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-107891"
+      },
+      "timestamp": "2026-11-06T23:28:57Z",
+      "products": [
+        {
+          "@id": "pkg:apk/alpine/musl@1.2.5-r12?arch=aarch64&distro=3.22"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Nothing in the runner image calls musl's regcomp: of the image's 10 ELF files (node, sharp and libvips, next-swc, esbuild, the Prisma schema engine, libgcc_s, libstdc++, /usr/bin/env and the musl loader that defines it), none imports regcomp, checked with llvm-nm -D --undefined-only. JavaScript regular expressions run on V8's own engine, not musl's."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-102276"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/brace-expansion@5.0.9"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This brace-expansion is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-102278"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/brace-expansion@5.0.9"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This brace-expansion is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-19534"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/undici@6.28.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This undici is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-87018"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/undici@6.28.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This undici is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-109383"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/undici@6.28.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This undici is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-109869"
+      },
+      "timestamp": "2026-11-09T19:53:14Z",
+      "products": [
+        {
+          "@id": "pkg:oci/node@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133?repository_url=dhi.io%2Fnode",
+          "subcomponents": [
+            {
+              "@id": "pkg:npm/undici@6.28.0"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This undici is the copy bundled inside the npm CLI that ships with Node in the build stages' base image (dhi.io/node:24-alpine3.22-dev, under /opt/nodejs/node-v24.22.2/lib/node_modules/npm), and no build step runs npm, npx, corepack or node-gyp: the build installs and builds with Yarn 4, it completes with npm's directory deleted from that base, and the runner stage copies nothing from it, so this code is neither run during the build nor present in the image that ships."
+    }
+  ]
+}

@@ -544,7 +544,7 @@ Agency:',
     'manually categorizes data ad hoc, leading to inconsistent categorization.',
     'adds consistency data categorization strategy and analysis methods by including defined labels and manual enforcement mechanisms.',
     'categorizes data using a combination of manual and static analysis methods while automating some data categorization and labeling processes in a consistent, tiered, targeted manner with simple, structured formats and regular review.',
-    'consistenly automates data categorization and labeling throughout, and augments categorization with robust techniques; granular, structured formats; and mechanisms to address all data types including machine learning models.',
+    'consistently automates data categorization and labeling throughout, and augments categorization with robust techniques; granular, structured formats; and mechanisms to address all data types including machine learning models.',
     'system_nist_gov',
     NOW(),
     NOW()

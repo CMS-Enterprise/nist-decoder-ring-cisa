@@ -10,13 +10,13 @@ How to build a new ZT Decoder Ring container image and push it to the dev ECR re
 
 - **First deploy into a fresh account** — the ECR repository does not exist until the environment stack's first `terraform apply`. Follow the launch order in [`aws-deployment.md`](../architecture/aws-deployment.md): apply, then this runbook, then [`ecs-migration-and-seed.md`](./ecs-migration-and-seed.md), then publish the DNS records, set `enable_https_listener = true` and apply again, which creates the service. `make ecs-redeploy` only works once the service exists.
 - **App code change** — anything under `app/` was edited.
-- **Dockerfile change** — base image bump, dep added, layer reordering. The `dhi.io` base images are pinned by digest and only move when re-pinned: run `make refresh-image-digests` before a release build. That is a manual update and needs DHI login credentials (`docker login dhi.io` first); see [`refresh-image-digests.md`](../scripts/refresh-image-digests.md).
+- **Dockerfile change** — base image bump, dep added, layer reordering. The `dhi.io` base images are pinned by digest and only move when re-pinned: run `make refresh-image-digests` before a release build. That is a manual update and needs DHI login credentials (`docker login dhi.io` first); see [`refresh-image-digests.md`](../scripts/refresh-image-digests.md). `make scan-base` scans the pinned bases against `trivy.yaml` in seconds, with no build, so a base that would fail the image scan shows up before step 5; see [`scan-base.md`](../scripts/scan-base.md).
 - **Prisma schema change** — schema.prisma was edited (the build does `prisma generate`).
 - **Dependency change** — `app/package.json` or `app/yarn.lock` was edited.
 
 If you're only changing Terraform (no app code or Dockerfile change), skip this runbook and go straight to `deploy-to-ecs.md`.
 
-**With make.** `AWS_PROFILE=<env-profile> make release-image VERSION=<x.y.z> ENV=dev` does this whole runbook for a release: it bumps the version, checks the RDS CA bundle pin, then runs `ecr-build-push`, which logs in to ECR (step 3), builds (step 5), checks the image carries its runtime files, scans it with Trivy and pushes (step 6). Each step below names the target that does that step. The commands under it are the same work by hand: for a one-off image, or to see which step a failed target stopped at.
+**With make.** `AWS_PROFILE=<env-profile> make release-image VERSION=<x.y.z> ENV=dev` does this whole runbook for a release: it bumps the version, checks the RDS CA bundle pin, then runs `ecr-build-push`, which logs in to ECR (step 3), builds (step 5), checks the image carries its runtime files, scans it with Trivy against `trivy.yaml` and pushes (step 6). Each step below names the target that does that step. The commands under it are the same work by hand: for a one-off image, or to see which step a failed target stopped at.
 
 ## Prerequisites
 

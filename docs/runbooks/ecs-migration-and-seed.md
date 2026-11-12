@@ -77,7 +77,7 @@ With nothing new to apply, the last line is `No pending migrations to apply.`
 
 ## 2. Seed the database
 
-The `ztdr-dev-seed` task definition runs `app/prisma/seed-ecs.ts` via the `tsx` loader. The seed reads the numbered SQL files from `app/prisma/seed-sql/<catalog>/` (`00` through `19` for `nist-800-53`, 20 files) in order and runs each through the `pg` driver as a single multi-statement query. The catalog is declared by `SEED_CATALOG` or `--catalog`, never inferred.
+The `ztdr-dev-seed` task definition runs `app/prisma/seed-ecs.ts` via the `tsx` loader. The seed reads the numbered SQL files from `app/prisma/seed-sql/<catalog>/` (`00` through `20` for `nist-800-53`, 21 files) in order and runs each through the `pg` driver as a single multi-statement query. The catalog is declared by `SEED_CATALOG` or `--catalog`, never inferred.
 
 **With make:** `AWS_PROFILE=<env-profile> make ecs-run-seed ENV=dev` runs the `ztdr-dev-seed` task the same way.
 
@@ -98,15 +98,15 @@ TID=$(echo "$TASK_ARN" | awk -F/ '{print $NF}'); aws logs get-log-events --log-g
 Expected on success:
 ```
 [entrypoint] DATABASE_URL composed for ...
-[seed-ecs] catalog=nist-800-53 files=20
+[seed-ecs] catalog=nist-800-53 database=<DB_NAME> files=21
 [seed-ecs] 00-cleanup.sql
 [seed-ecs] 01-system-user.sql
 ...
-[seed-ecs] 19-zt-references-omb.sql
-[seed-ecs] Completed 20 file(s)
+[seed-ecs] 20-fips.sql
+[seed-ecs] Completed 21 file(s)
 ```
 
-A file that fails ends the run. The task exits 1 and logs `[seed-ecs] Partial seed: loaded N of 20 file(s) (…); failed at <file>; not run: …`, then `[seed-ecs] Failed:` with the error. `make ecs-run-seed` fails on the exit code, and the `Failed` line raises the seed-failed alarm.
+A file that fails ends the run. The task exits 1 and logs `[seed-ecs] Partial seed: loaded N of 21 file(s) (…); failed at <file>; not run: …`, then `[seed-ecs] Failed:` with the error. `make ecs-run-seed` fails on the exit code, and the `Failed` line raises the seed-failed alarm.
 
 ## 3. Verify the app sees the data
 

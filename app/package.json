@@ -1,6 +1,6 @@
 {
   "name": "zt-decoder-ring",
-  "version": "0.1.14",
+  "version": "0.1.16",
   "private": true,
   "type": "module",
   "engines": {
@@ -67,11 +67,13 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@testcontainers/postgresql": "^12.1.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
     "@types/node": "^26.6.6",
     "@types/oidc-provider": "^9.13.1",
     "@types/pg": "^8.23.1",
@@ -92,6 +94,7 @@
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4.3.3",
+    "testcontainers": "^12.2.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",

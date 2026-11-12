@@ -38,7 +38,12 @@ export const env = createEnv({
    * isn't built with invalid env vars. To expose them to the client, prefix them with
    * `NEXT_PUBLIC_`.
    */
-  client: {},
+  client: {
+    /**
+     * The app's version, which `next.config.js` reads from `package.json` and inlines at build time. Nothing sets it in the environment. It is unset outside a Next build, as under Vitest, and the footer then shows no version.
+     */
+    NEXT_PUBLIC_APP_VERSION: z.string().optional(),
+  },
 
   /**
    * You can't destruct `process.env` as a regular object in the Next.js edge runtimes (e.g.
@@ -57,6 +62,7 @@ export const env = createEnv({
     AUTH_ALLOWED_EMAIL_DOMAINS: process.env.AUTH_ALLOWED_EMAIL_DOMAINS,
     AUTH_ALLOW_UNVERIFIED_EMAIL: process.env.AUTH_ALLOW_UNVERIFIED_EMAIL,
     NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

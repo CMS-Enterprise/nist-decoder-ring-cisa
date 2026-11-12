@@ -13,6 +13,7 @@ Moving these pins is a manual update today, and it needs DHI login credentials. 
 ```bash
 docker login dhi.io          # Docker ID and password, or an access token
 make refresh-image-digests   # rewrites the Dockerfile if a tag has moved
+make scan-base               # scans the new pins against trivy.yaml, without a build
 make container-build         # rebuild against the new digests before committing
 ```
 

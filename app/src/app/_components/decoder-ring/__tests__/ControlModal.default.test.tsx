@@ -16,7 +16,6 @@
  *  - Copy-to-clipboard: fallback path (navigator.clipboard unavailable)
  *  - Modal close button
  *  - Fallback pre-load (detailData not yet available, control carries ztMapping)
- *  - Priority badge colours (P1/P2/P3/other)
  *  - nistVersion prop rendering
  *  - enhancementLabel helper (extracted via rendered button text)
  */
@@ -128,7 +127,6 @@ function makeDetail(overrides: Partial<ControlDetail> = {}): ControlDetail {
     discussion: null,
     reviewFrequency: null,
     assessmentFrequency: null,
-    priority: null,
     status: "zero-trust-aligned",
     parts: [makePart()],
     ztLinks: [],
@@ -178,6 +176,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 // ---------------------------------------------------------------------------
@@ -607,10 +606,10 @@ describe("ControlModal — assessment procedures section", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Frequency / priority metadata
+// Frequency metadata
 // ---------------------------------------------------------------------------
 
-describe("ControlModal — frequency and priority metadata", () => {
+describe("ControlModal — frequency metadata", () => {
   it("renders review and assessment frequency when present", () => {
     mockUseQuery = vi.fn().mockReturnValue({
       data: makeQueryResponse({
@@ -630,72 +629,11 @@ describe("ControlModal — frequency and priority metadata", () => {
     expect(screen.getByText("Quarterly")).toBeInTheDocument();
   });
 
-  it("renders P1 priority badge", () => {
-    mockUseQuery = vi.fn().mockReturnValue({
-      data: makeQueryResponse({ priority: "P1" }),
-      isLoading: false,
-    });
-    render(
-      <ControlModal
-        control={makeControl()}
-        nistVersion="NIST SP 800-53 Rev 5"
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("P1")).toBeInTheDocument();
-  });
-
-  it("renders P2 priority badge", () => {
-    mockUseQuery = vi.fn().mockReturnValue({
-      data: makeQueryResponse({ priority: "P2" }),
-      isLoading: false,
-    });
-    render(
-      <ControlModal
-        control={makeControl()}
-        nistVersion="NIST SP 800-53 Rev 5"
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("P2")).toBeInTheDocument();
-  });
-
-  it("renders P3 priority badge", () => {
-    mockUseQuery = vi.fn().mockReturnValue({
-      data: makeQueryResponse({ priority: "P3" }),
-      isLoading: false,
-    });
-    render(
-      <ControlModal
-        control={makeControl()}
-        nistVersion="NIST SP 800-53 Rev 5"
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("P3")).toBeInTheDocument();
-  });
-
-  it("renders an unlabelled priority with a neutral badge colour", () => {
-    mockUseQuery = vi.fn().mockReturnValue({
-      data: makeQueryResponse({ priority: "P0" }),
-      isLoading: false,
-    });
-    render(
-      <ControlModal
-        control={makeControl()}
-        nistVersion="NIST SP 800-53 Rev 5"
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("P0")).toBeInTheDocument();
-  });
-
-  it("omits the metadata strip when all three are null", () => {
+  it("omits the metadata strip when both frequencies are null", () => {
     mockUseQuery = vi.fn().mockReturnValue({
       data: makeQueryResponse({
         reviewFrequency: null,
         assessmentFrequency: null,
-        priority: null,
       }),
       isLoading: false,
     });
@@ -706,7 +644,6 @@ describe("ControlModal — frequency and priority metadata", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.queryByText("Priority:")).toBeNull();
     expect(screen.queryByText("Review:")).toBeNull();
     expect(screen.queryByText("Assessment:")).toBeNull();
   });
@@ -825,9 +762,15 @@ describe("ControlModal — enhancement tabs", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Base" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "(01)" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "(03)" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Base( |,|$)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^\(01\)( |,|$)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^\(03\)( |,|$)/ }),
+    ).toBeInTheDocument();
   });
 
   it("colors tabs by ZT alignment — ZT enhancement teal, non-ZT tan, base blue (never purple)", () => {
@@ -845,14 +788,24 @@ describe("ControlModal — enhancement tabs", () => {
     );
     // Base tab is active (amber) on mount; the enhancement tabs are inactive and
     // show their status color.
-    const ztEnhTab = screen.getByRole("button", { name: "(01)" });
-    const nonZtEnhTab = screen.getByRole("button", { name: "(03)" });
-    expect(ztEnhTab).toHaveClass("bg-teal-700"); // ZT enhancement
-    expect(nonZtEnhTab).toHaveClass("bg-yellow-100"); // non-ZT enhancement
+    const ztEnhTab = screen.getByRole("button", { name: /^\(01\)( |,|$)/ });
+    const nonZtEnhTab = screen.getByRole("button", { name: /^\(03\)( |,|$)/ });
+    expect(ztEnhTab).toHaveClass("bg-zt"); // ZT enhancement
+    expect(nonZtEnhTab).toHaveClass("ring-highlight-edge"); // non-ZT enhancement
+    // Mapping is marked in text as well as color, and named in full.
+    expect(ztEnhTab).toHaveAccessibleName("(01) ZT, Zero Trust mapped");
+    expect(ztEnhTab).toHaveTextContent("ZT");
+    expect(nonZtEnhTab).toHaveAccessibleName("(03)");
+    expect(nonZtEnhTab).not.toHaveTextContent("ZT");
+    // The open tab is pressed, which a reader gets without seeing its color.
+    expect(
+      screen.getByRole("button", { name: /^Base( |,|$)/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(ztEnhTab).toHaveAttribute("aria-pressed", "false");
     // Activate an enhancement so the base tab goes inactive and shows its color.
     fireEvent.click(ztEnhTab);
-    const base = screen.getByRole("button", { name: "Base" });
-    expect(base).toHaveClass("bg-blue-600"); // base is ZT-mapped
+    const base = screen.getByRole("button", { name: /^Base( |,|$)/ });
+    expect(base).toHaveClass("bg-accent"); // base is ZT-mapped
     // The "both" bridge state never leaks violet into the modal.
     for (const tab of [base, ztEnhTab, nonZtEnhTab]) {
       expect(tab.className).not.toMatch(/violet/);
@@ -875,9 +828,9 @@ describe("ControlModal — enhancement tabs", () => {
       />,
     );
     // Deactivate the base tab (activate the enhancement) to read its inactive color.
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
-    expect(screen.getByRole("button", { name: "Base" })).toHaveClass(
-      "bg-yellow-100",
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
+    expect(screen.getByRole("button", { name: /^Base( |,|$)/ })).toHaveClass(
+      "ring-highlight-edge",
     );
   });
 
@@ -893,7 +846,7 @@ describe("ControlModal — enhancement tabs", () => {
         onClose={vi.fn()}
       />,
     );
-    const tab = screen.getByRole("button", { name: "(01)" });
+    const tab = screen.getByRole("button", { name: /^\(01\)( |,|$)/ });
     fireEvent.click(tab);
     expect(screen.getByText("Enhancement 01 guidance.")).toBeInTheDocument();
     expect(screen.getByText("AC-02(01)")).toBeInTheDocument();
@@ -912,9 +865,9 @@ describe("ControlModal — enhancement tabs", () => {
       />,
     );
     // Click enhancement tab first
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     // Then return to base
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     // Base control heading is visible again
     expect(screen.getByText("AC-02")).toBeInTheDocument();
   });
@@ -945,8 +898,8 @@ describe("ControlModal — enhancement tabs", () => {
           onOpenControl={open}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "(01)" }));
-      fireEvent.click(screen.getByRole("button", { name: "Base" }));
+      fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
       fireEvent.click(screen.getByRole("button", { name: "AC-2(1)" }));
       expect(screen.getByText("AC-02(01)")).toBeInTheDocument();
       expect(open).not.toHaveBeenCalled();
@@ -966,7 +919,7 @@ describe("ControlModal — enhancement tabs", () => {
           onOpenControl={open}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+      fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
       expect(screen.getByText("AC-02(01)")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "AC-2" }));
       expect(screen.queryByText("AC-02(01)")).not.toBeInTheDocument();
@@ -988,7 +941,7 @@ describe("ControlModal — enhancement tabs", () => {
           onOpenControl={open}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+      fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
       fireEvent.click(screen.getByRole("button", { name: "SC-8" }));
       expect(open).toHaveBeenCalledWith("SC-08");
     });
@@ -1024,9 +977,9 @@ describe("ControlModal — the tab in the address (?enh)", () => {
       searchParams: "?enh=03",
     });
     expect(heading()).toHaveTextContent("AC-02(03)");
-    expect(screen.getByRole("button", { name: "(03)" })).toHaveClass(
-      "bg-yellow-600",
-    );
+    expect(
+      screen.getByRole("button", { name: /^\(03\)( |,|$)/ }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("pushes each tab change, and Base takes ?enh off", async () => {
@@ -1036,14 +989,14 @@ describe("ControlModal — the tab in the address (?enh)", () => {
       onUrlUpdate,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(1));
     const toTab = onUrlUpdate.mock.calls[0]![0];
     expect(toTab.queryString).toBe("?pillar=DATA&enh=01");
     expect(toTab.options.history).toBe("push");
     expect(heading()).toHaveTextContent("AC-02(01)");
 
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(2));
     expect(onUrlUpdate.mock.calls[1]![0].queryString).toBe("?pillar=DATA");
     expect(heading()).toHaveTextContent("AC-02");
@@ -1055,14 +1008,14 @@ describe("ControlModal — the tab in the address (?enh)", () => {
       searchParams: "?enh=01",
       onUrlUpdate,
     });
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     await settle();
     expect(onUrlUpdate).not.toHaveBeenCalled();
 
     // Once on Base, Base again adds nothing either.
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     await settle();
     expect(onUrlUpdate).toHaveBeenCalledTimes(1);
   });
@@ -1073,7 +1026,7 @@ describe("ControlModal — the tab in the address (?enh)", () => {
       searchParams: "?enh=99",
       onUrlUpdate,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     await settle();
     expect(onUrlUpdate).not.toHaveBeenCalled();
   });
@@ -1087,9 +1040,9 @@ describe("ControlModal — the tab in the address (?enh)", () => {
       searchParams,
     });
     expect(heading()).toHaveTextContent(/^AC-02$/);
-    expect(screen.getByRole("button", { name: "Base" })).toHaveClass(
-      "bg-yellow-600",
-    );
+    expect(
+      screen.getByRole("button", { name: /^Base( |,|$)/ }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("zero-pads a one-digit ?enh, as the server does", () => {
@@ -1152,7 +1105,9 @@ describe("ControlModal — ZT-via-enhancements banner", () => {
     expect(
       screen.getByText("ZT alignment available in enhancements"),
     ).toBeInTheDocument();
-    expect(screen.getByText("— select a teal tab below")).toBeInTheDocument();
+    expect(
+      screen.getByText("— select a tab marked ZT below"),
+    ).toBeInTheDocument();
   });
 
   it("hides the teal banner after clicking an enhancement tab", () => {
@@ -1173,7 +1128,7 @@ describe("ControlModal — ZT-via-enhancements banner", () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     expect(
       screen.queryByText("ZT alignment available in enhancements"),
     ).toBeNull();
@@ -1282,6 +1237,37 @@ describe("ControlModal — export menu", () => {
       screen.getByRole("button", { name: /Download spreadsheet/ }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Include its enhancements")).toBeChecked();
+  });
+
+  it("keeps one tab's failed download off the next tab", async () => {
+    // Each tab gets its own export menu, so a failure on the base doesn't follow the
+    // reader to an enhancement.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({ error: "Base export failed." }, { status: 500 }),
+        ),
+      ),
+    );
+    mockUseQuery = vi.fn().mockReturnValue({
+      data: makeQueryResponse({}, [makeDetail({ id: "AC-02(01)" })]),
+      isLoading: false,
+    });
+    render(<ControlModal control={makeControl()} onClose={vi.fn()} />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Download spreadsheet/ }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getAllByText("Base export failed.").length).toBeGreaterThan(
+        0,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
+    expect(screen.queryByText("Base export failed.")).toBeNull();
   });
 
   it("offers a base's enhancements only when it has live ones, as the export brings", () => {
@@ -1894,7 +1880,7 @@ describe("ControlModal — baselines and frequency rows", () => {
       },
       [enh],
     );
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     const chip = screen.getByRole("button", {
       name: `${product.frequencyInheritsChip} CA-02`,
     });
@@ -1925,7 +1911,7 @@ describe("ControlModal — baselines and frequency rows", () => {
       screen.getByRole("button", { name: product.frequencyOrgDefinedChip }),
     );
     expect(screen.getByText("(d)")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "(02)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(02\)( |,|$)/ }));
     expect(
       screen.getByRole("button", { name: product.frequencyOrgDefinedChip }),
     ).toHaveAttribute("aria-expanded", "false");
@@ -1952,7 +1938,7 @@ describe("ControlModal — baselines and frequency rows", () => {
       },
       [enh],
     );
-    fireEvent.click(screen.getByRole("button", { name: "(02)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(02\)( |,|$)/ }));
     expect(
       screen.queryByRole("button", {
         name: new RegExp(product.frequencyInheritsChip),
@@ -2010,13 +1996,13 @@ describe("ControlModal — enhancement references inherit the base's", () => {
 
   it("reopens a site's container on each tab, so a container closed on one cannot hide the next tab's chip", () => {
     renderOn([{ label: "SP 800-63B", url: "https://example.gov/sp800-63b" }]);
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     const container = () =>
       screen.getByRole("link", { name: /SP 800-63B/ }).closest("details")!;
     expect(container()).toHaveAttribute("open");
     container().open = false;
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     expect(container()).toHaveAttribute("open");
   });
 
@@ -2025,7 +2011,7 @@ describe("ControlModal — enhancement references inherit the base's", () => {
     expect(
       screen.queryByText(product.referencesInfoBody.enhancement),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     expect(
       screen.getByText(product.referencesInfoBody.enhancement),
     ).toBeInTheDocument();
@@ -2044,7 +2030,7 @@ describe("ControlModal — enhancement references inherit the base's", () => {
         citation: "FIPS 201",
       },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     const links = referenceLinks().map((a) => a.getAttribute("href"));
     expect(links).toEqual([
       "https://example.gov/sp800-63b",
@@ -2064,7 +2050,7 @@ describe("ControlModal — enhancement references inherit the base's", () => {
         citation: "NIST SP 800-63B",
       },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     const chip = screen.getByText(product.enhancementSpecificChip);
     expect(chip.parentElement).toContainElement(screen.getByText("SP 800-63B"));
     expect(screen.getByText("NIST SP 800-63B")).toHaveTextContent(
@@ -2074,7 +2060,7 @@ describe("ControlModal — enhancement references inherit the base's", () => {
 
   it("shows the base's references, unchipped, on an enhancement that cites none", () => {
     renderOn([]);
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     expect(referenceLinks()).toHaveLength(2);
     expect(
       screen.queryByText(product.enhancementSpecificChip),
@@ -2100,7 +2086,7 @@ describe("ControlModal — enhancement references inherit the base's", () => {
       configurable: true,
     });
     renderOn([{ label: "SP 800-63B", url: "https://example.gov/sp800-63b" }]);
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", { name: /Copy Guidance Text/i }),
@@ -2162,7 +2148,7 @@ describe("ControlModal — Zero Trust references on an enhancement's tab", () =>
 
   it("lists the enhancement's own first, chipped beside the title, then the base's", () => {
     renderZt();
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     const own = screen.getByRole("link", { name: /Memo M-22-09/ });
     const inherited = screen.getByRole("link", {
       name: /Zero Trust Maturity Model/,
@@ -2179,7 +2165,7 @@ describe("ControlModal — Zero Trust references on an enhancement's tab", () =>
     expect(
       screen.queryByText(product.ztReferencesInfoBody.enhancement),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "(03)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(03\)( |,|$)/ }));
     expect(
       screen.getByText(product.ztReferencesInfoBody.enhancement),
     ).toBeInTheDocument();
@@ -2295,9 +2281,9 @@ describe("ControlModal — withdrawn controls and lineage", () => {
     const tab = screen.getByRole("button", { name: "(10), withdrawn" });
     expect(tab).toHaveClass("line-through");
     expect(tab).toHaveAttribute("title", "Withdrawn");
-    expect(screen.getByRole("button", { name: "(01)" })).not.toHaveClass(
-      "line-through",
-    );
+    expect(
+      screen.getByRole("button", { name: /^\(01\)( |,|$)/ }),
+    ).not.toHaveClass("line-through");
     expect(
       screen.getByText(/tabs are withdrawn enhancements/),
     ).toBeInTheDocument();
@@ -2312,12 +2298,14 @@ describe("ControlModal — withdrawn controls and lineage", () => {
 
   it("shows only Base and the toggle when every enhancement is withdrawn", () => {
     renderModal(vi.fn(), [withdrawnEnh]);
-    const strip = screen.getByRole("button", { name: "Base" }).parentElement!;
+    const strip = screen.getByRole("button", {
+      name: /^Base( |,|$)/,
+    }).parentElement!;
     expect(
       within(strip)
         .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["Base", "1 withdrawn"]);
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual(["Base ZT, Zero Trust mapped", "1 withdrawn"]);
   });
 
   it("returns to the base when withdrawn tabs are hidden from one of them", () => {
@@ -2374,8 +2362,8 @@ describe("ControlModal — withdrawn controls and lineage", () => {
       expect(item).not.toBeNull();
       expect(item).toHaveClass("ring-2");
       // A tab the reader picks clears the highlight.
-      fireEvent.click(screen.getByRole("button", { name: "(01)" }));
-      fireEvent.click(screen.getByRole("button", { name: "Base" }));
+      fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
       expect(document.querySelector("[data-focused]")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Hide withdrawn" }));
     }
@@ -2406,7 +2394,7 @@ describe("ControlModal — withdrawn controls and lineage", () => {
     expect(toItem.options.history).toBe("push");
     expect(highlighted()).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "(01)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^\(01\)( |,|$)/ }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(3));
     expect(onUrlUpdate.mock.calls[2]![0].queryString).toBe(
       "?pillar=DATA&enh=01",
@@ -2472,7 +2460,7 @@ describe("ControlModal — withdrawn controls and lineage", () => {
     // The tab it lands on shows even though the withdrawn tabs are collapsed.
     expect(screen.getByTestId("withdrawn-notice")).toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Base" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Base( |,|$)/ }));
     fireEvent.click(screen.getByRole("button", { name: "AC-13" }));
     expect(open).toHaveBeenCalledWith("AC-13");
   });
@@ -2504,7 +2492,11 @@ describe("ControlModal — withdrawn controls and lineage", () => {
       />,
     );
     expect(screen.queryByText("New in 5.2.0")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "(13), new in 5.2.0" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "(13) ZT new, Zero Trust mapped, new in 5.2.0",
+      }),
+    );
     expect(screen.getByText("New in 5.2.0")).toBeInTheDocument();
   });
 

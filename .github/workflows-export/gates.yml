@@ -30,7 +30,9 @@
 #                           production-build break fails here.
 #   Container
 #     make container-verify The image carries every file the runtime needs.
-#     make container-scan   No HIGH or CRITICAL CVE with a fix available in the image.
+#     make container-scan   No HIGH or CRITICAL CVE with a fix available in the image, less
+#                           what security/vex.openvex.json records as not affecting it.
+#                           The policy is trivy.yaml; why: docs/testing.md (Image scans).
 #     make refresh-image-digests, then an unchanged Dockerfile
 #                           The pinned base images are the digests their tags point at
 #                           today. Why: docs/scripts/refresh-image-digests.md.

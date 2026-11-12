@@ -216,3 +216,16 @@ variable "oidc_allow_unverified_email" {
     error_message = "oidc_allow_unverified_email needs oidc_allowed_email_domains."
   }
 }
+
+# --- Database recovery ---
+
+variable "db_restored_instance_identifier" {
+  description = "Identifier of an RDS instance that scripts/db-recover.sh restored outside Terraform, for the app to read in place of the database module's instance. Null, the default, keeps the app on the module's instance. Terraform reads the named instance and never changes it. See docs/runbooks/prod-db-recovery.md."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.db_restored_instance_identifier == null || can(regex("^${var.name_prefix}-${var.environment}-[a-z0-9]+(-[a-z0-9]+)*$", var.db_restored_instance_identifier))
+    error_message = "db_restored_instance_identifier names a restored instance, <name_prefix>-<environment>-<suffix>, never the database module's own <name_prefix>-<environment>."
+  }
+}

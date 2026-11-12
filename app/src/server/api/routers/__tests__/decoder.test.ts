@@ -923,7 +923,6 @@ describe("decoder.getControlById", () => {
       controlName: "Access Policy",
       reviewFrequency: "Annually (365 Days)",
       assessmentFrequency: "Three (3) Years",
-      priority: "P1",
     });
 
     mockDb.nistControl.findFirst.mockResolvedValue(controlRow);
@@ -938,7 +937,6 @@ describe("decoder.getControlById", () => {
     expect(result.description).toBe(""); // No parts provided → empty composed statement
     expect(result.reviewFrequency).toBe("Annually (365 Days)");
     expect(result.assessmentFrequency).toBe("Three (3) Years");
-    expect(result.priority).toBe("P1");
     expect(result.status).toBe("compliance");
     expect(result.ztMapping).toBeUndefined();
     expect(result.enhancements).toEqual([]);
@@ -1436,7 +1434,6 @@ describe("decoder.getControlById", () => {
       controlNumber: "AC-02(02)",
       controlName: "Temporary Accounts",
       parentControlId: parentControl.id,
-      priority: "P2",
     });
 
     mockDb.nistControl.findFirst.mockResolvedValue(parentControl);
@@ -1458,7 +1455,6 @@ describe("decoder.getControlById", () => {
     expect(enh2.id).toBe("AC-02(02)");
     expect(enh2.status).toBe("compliance");
     expect(enh2.ztMapping).toBeUndefined();
-    expect(enh2.priority).toBe("P2");
   });
 
   it("queries enhancements using the parent control's DB id", async () => {
@@ -1484,7 +1480,6 @@ describe("decoder.getControlById", () => {
       controlNumber: "AC-01",
       reviewFrequency: null,
       assessmentFrequency: null,
-      priority: null,
     });
 
     mockDb.nistControl.findFirst.mockResolvedValue(controlRow);
@@ -1496,7 +1491,6 @@ describe("decoder.getControlById", () => {
 
     expect(result.reviewFrequency).toBeNull();
     expect(result.assessmentFrequency).toBeNull();
-    expect(result.priority).toBeNull();
   });
 
   it("handles control with empty parts array", async () => {
@@ -2860,6 +2854,27 @@ describe("exportRouter: export.getExportRecord", () => {
     ]);
   });
 
+  it("keeps a no-affinity mapping's row when the filter names one of its pillars", async () => {
+    const row = makeControl({
+      controlNumber: "AC-02",
+      ztMapping: makeZtMapping({
+        pillars: ["IDENTITY", "DEVICES"],
+        maturityLevel: "OPTIMAL",
+        affinities: [],
+      }),
+    });
+    mockDb.nistControl.findMany
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([{ ...row, parentControl: null }]);
+
+    const r = await run({ pillar: ["DEVICES"], enhancements: "without" });
+
+    expect(r.zeroTrustFiltered).toBe(true);
+    expect(r.controls[0]!.zeroTrust!.map((t) => t.pillar)).toEqual([
+      "IDENTITY, DEVICES",
+    ]);
+  });
+
   it("carries lineage and an enhancement's inherited frequencies, and drops priority", async () => {
     mockDb.nistControl.findMany
       .mockResolvedValueOnce([
@@ -2868,7 +2883,7 @@ describe("exportRouter: export.getExportRecord", () => {
       ])
       .mockResolvedValueOnce([
         {
-          ...makeControl({ controlNumber: "AC-13", priority: "P1" }),
+          ...makeControl({ controlNumber: "AC-13" }),
           status: "WITHDRAWN",
           lineage: [
             {

@@ -84,6 +84,19 @@ PARTS_PATH = os.path.join(SEED_DIR, '06-control-parts.sql')
 # has nothing to read, so the absence itself fails the run rather than being skipped.
 BACKBONE_PATHS = (CONTROLS_PATH, PARTS_PATH, PARAMS_PATH)
 
+# Backbone files that always carry rows. One that is empty, or holds only comments, reads
+# as clean to every check, so it fails the run as a missing one does. 07 is not here: a
+# catalog with no baseline parameters seeds it with comments only, as NIST's does.
+NONEMPTY_PATHS = (CONTROLS_PATH, PARTS_PATH)
+
+# Files whose rows are keyed to the mappings 09 seeds: part coverage and affinity. Either
+# one with rows and no 09 fails the seed at that file. The other zt- files do not depend
+# on 09: the guidance resolves by natural key, and the reference files key to controls.
+MAPPING_DEPENDENT_PATHS = (
+    os.path.join(SEED_DIR, '11-zt-part-coverage.sql'),
+    os.path.join(SEED_DIR, '13-zt-mapping-affinity.sql'),
+)
+
 # Baseline indicator glyphs an OSCAL source can embed in prose. A seed generator
 # extracts them into ControlParameter rows and strips them from the prose it emits,
 # so seeded prose must carry none: the modal renders prose through one path that does
@@ -465,6 +478,53 @@ def check_baseline_badges_stripped(seed_dir):
     return files, hits
 
 
+# Comments as Postgres reads them: a string literal runs to the next quote that is not
+# doubled, a line comment to the end of its line, and block comments nest. Each comment
+# reads as a space. Literals are kept, so a "--" or "/*" inside one is not a comment.
+_SQL_TOKEN_START = re.compile(r"'|--|/\*")
+_SQL_LITERAL = re.compile(r"'(?:''|[^'])*'?")
+_SQL_LINE_COMMENT = re.compile(r"--[^\r\n]*")
+_SQL_COMMENT_EDGE = re.compile(r"/\*|\*/")
+
+
+def without_comments(text):
+    """SQL text with each comment replaced by a space."""
+    out, i = [], 0
+    while (m := _SQL_TOKEN_START.search(text, i)):
+        out.append(text[i:m.start()])
+        if m.group(0) == "'":
+            literal = _SQL_LITERAL.match(text, m.start())
+            out.append(literal.group(0))
+            i = literal.end()
+            continue
+        if m.group(0) == "--":
+            i = _SQL_LINE_COMMENT.match(text, m.start()).end()
+        else:
+            depth, i = 1, m.end()
+            while depth and (edge := _SQL_COMMENT_EDGE.search(text, i)):
+                depth += 1 if edge.group(0) == "/*" else -1
+                i = edge.end()
+            if depth:
+                # Unterminated, which Postgres rejects: the rest of the file is comment.
+                i = len(text)
+        out.append(" ")
+    out.append(text[i:])
+    return "".join(out)
+
+
+def uncommented_sql(path):
+    """A seed file's text without its comments, read past any byte-order mark."""
+    with open(path, encoding='utf-8-sig') as f:
+        return without_comments(f.read())
+
+
+def has_rows(path):
+    """Whether a seed file inserts any rows: an INSERT INTO, or a COPY ... FROM, anywhere
+    outside its comments and string literals."""
+    sql = _SQL_LITERAL.sub("''", uncommented_sql(path))
+    return re.search(r"\bINSERT\s+INTO\b|\bCOPY\b[^;]*?\bFROM\b", sql, re.I) is not None
+
+
 def main():
     assert_catalog_exists()
     failed = False
@@ -475,7 +535,10 @@ def main():
     missing = [p for p in BACKBONE_PATHS if not os.path.exists(p)]
     for path in missing:
         print(f"  ✗ {path} not found: every catalog seeds it")
-    if missing:
+    empty = [p for p in NONEMPTY_PATHS if os.path.exists(p) and not has_rows(p)]
+    for path in empty:
+        print(f"  ✗ {path} inserts no rows: every catalog seeds rows into it")
+    if missing or empty:
         failed = True
 
     # --- 0. Part-label convention (06) — runs for every catalog, overlay or not ---
@@ -513,13 +576,18 @@ def main():
         else:
             print(f"  ✓ no baseline badge glyphs in {len(scanned)} seeded SQL file(s)")
 
-    # Every check below reads the Zero Trust overlay (09-13). A catalog can be
-    # legitimately seeded without one — the backbone loads and every control
-    # renders unmapped — so an absent overlay is reported and skipped rather than
-    # treated as a broken seed. It is still an error for a catalog that HAS an
-    # overlay to be missing one of its files, which is why this keys on 09 alone:
-    # if the overlay exists at all, the rest must be there too.
+    # Every check below reads the Zero Trust mappings (09). A catalog can be legitimately
+    # seeded without them — the backbone loads and every control renders unmapped — so
+    # their absence is reported and the checks skipped rather than treated as a broken
+    # seed. Unless a file whose rows are keyed to those mappings still has rows: then the
+    # seed fails at that file, and so does this run.
     if not os.path.exists(MAPPINGS_PATH):
+        dependents = [p for p in MAPPING_DEPENDENT_PATHS if os.path.exists(p) and has_rows(p)]
+        if dependents:
+            for path in dependents:
+                print(f"  ✗ {MAPPINGS_PATH} not found, but {os.path.basename(path)} inserts rows keyed to its mappings")
+            print("The checks that read 09 are skipped.")
+            sys.exit(1)
         print(f"Catalog {CATALOG!r} has no Zero Trust overlay ({os.path.basename(MAPPINGS_PATH)} absent).")
         print("Backbone-only seed: skipping the overlay checks.")
         if failed:
@@ -582,7 +650,7 @@ def main():
         # as an identifier, the row stops matching, and every mapping in that group
         # quietly resolves to nothing. Injecting exactly that defect drops coverage
         # from 296/296 to 243/296 while the run still exits 0 and still prints
-        # "guidance row integrity OK"; the failure only surfaces later at psql.
+        # "guidance row integrity OK"; the failure only surfaces when the seed loads.
         #
         # The shortfall collapses into a single (pillar, function) tuple, so counting
         # gap tuples does not see it either. The ratio is what moves, it was already

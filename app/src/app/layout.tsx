@@ -6,6 +6,7 @@ import { Geist } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 
 import { TRPCReactProvider } from "~/trpc/react";
+import { themeScript } from "~/app/_components/theme/theme";
 import { product } from "~/config/product";
 
 export const metadata: Metadata = {
@@ -27,7 +28,12 @@ export default function RootLayout({
   modal,
 }: Readonly<{ children: React.ReactNode; modal: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable}`}>
+    // The <head> script sets data-theme before first paint, so React finds an attribute
+    // the server didn't render; suppressHydrationWarning covers this element only.
+    <html lang="en" className={`${geist.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         <NuqsAdapter>
           <TRPCReactProvider>

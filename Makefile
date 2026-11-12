@@ -2,10 +2,11 @@
 UNAME_S := $(shell uname -s 2>/dev/null || echo Windows)
 
 # GNU make conventions, from the manual's "Makefile Conventions" and special targets, all of them
-# available in the GNU make 3.81 macOS ships: a fixed shell rather than whatever the caller has,
-# help as the default goal, no built-in suffix rules (nothing here compiles), and a file target
-# that a failed recipe changed is deleted rather than left looking up to date. Every target is
-# declared .PHONY below, and recursion goes through $(MAKE) so flags and ENV=... pass down.
+# available in the GNU make 3.81 macOS ships: SHELL set explicitly (it is already make's default,
+# and make never takes it from the environment), help as the default goal, and no built-in suffix
+# rules (nothing here compiles). .DELETE_ON_ERROR deletes a file target that a failed recipe
+# changed; every target is .PHONY today, so it only matters if a file target is added. Recursion
+# goes through $(MAKE) so flags and ENV=... pass down.
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 .SUFFIXES:
@@ -35,15 +36,15 @@ DEV_DB_URL = postgresql://ztdecoder:ztdecoder_dev_password@localhost:5439/$(DEV_
 .PHONY: help \
         preflight check-docker check-env aws-whoami aws-profiles-discover dns-check \
         check-proxy require-proxy _proxy-probe check-version check-deploy-safety local-status local-stop \
-        ci-install ci-install-python ci-test-js ci-test-python test-integration test-seed-checks test-scripts test-api test-matrix \
+        ci-install ci-install-python ci-test-js ci-test-python test-integration test-seed-checks test-scripts test-api test-pipeline test-browser test-a11y a11y-baseline _browser-build _install-frostfall test-matrix \
         setup env-auth-secret dev dev-debug _check-port app-check app-audit app-release seed-ecs-local \
         db-up db-down db-restart db-clean db-reset db-shell db-migrate db-push db-studio db-seed db-seed-check db-ready db-generate _db-ensure _db-guard \
         _stop-app-profiles _compose-build _compose-up _compose-logs _image-file-check \
-        container-build container-up container-down container-clean container-logs container-smoke container-scan container-verify container-debug refresh-image-digests check-rds-bundle \
+        container-build container-up container-down container-clean container-logs container-smoke container-scan container-verify container-debug refresh-image-digests check-rds-bundle scan-base pre-push \
         ci-check ci-test ci-prisma-validate ci-check-links check-links check-links-api reference-links-retrieve reference-links-build reference-links zt-reference-links-retrieve zt-reference-links-build zt-reference-links zt-overlay-transform zt-overlay \
         set-version ecr-build ecr-login ecr-push ecr-build-push release-image deploy \
         ecs-run-migrate ecs-run-seed _ecs-run-task ecs-image-check image-scan ecs-tasks-list ecs-scale ecs-redeploy smoke \
-        db-dr-test db-dr-teardown check-seed-links \
+        db-dr-test db-dr-teardown db-recover check-seed-links \
         _require-env _require-version _require-image-tag _require-trivy _require-ecr _require-deploy
 
 # Default target. Lists the commands a person runs: the end-to-end workflows and the
@@ -64,14 +65,19 @@ help:
 	@echo "  local-status          What this repository is running, in every worktree"
 	@echo "  local-stop            Stop every worktree's dev servers and app containers; the database keeps running"
 	@echo ""
-	@echo "Before you push: what CI runs"
+	@echo "Before you push: what CI runs, and what it cannot"
+	@echo "  pre-push              scan-base, then the code checks: ci-check, ci-test, db-seed-check, ci-prisma-validate"
+	@echo "  scan-base             Scan the Dockerfile's pinned base images against trivy.yaml; builds nothing"
 	@echo "  ci-check              Lint, typecheck, the committed image tags and the seed's URL format"
 	@echo "  ci-test               The unit and Python tests, with the coverage floor"
 	@echo "  test-integration      The integration suite, against a throwaway Postgres"
 	@echo "  test-matrix           Every test area in docs/testing.md, each without the coverage floor"
 	@echo "  test-seed-checks      The seed checker's tests, then the checks against the committed seed"
-	@echo "  test-scripts          The shell scripts' tests, with aws and docker stubbed"
+	@echo "  test-scripts          The shell scripts' tests, with aws, docker and terraform stubbed"
 	@echo "  test-api              The tRPC setup, auth wiring, database client and route handlers"
+	@echo "  test-pipeline         The seed generators, rebuilt offline and checked against the committed seed"
+	@echo "  test-browser          The bridge in a real browser, against the built app and a throwaway Postgres"
+	@echo "  test-a11y             The accessibility scan alone (frostfall); a11y-baseline rewrites its baseline"
 	@echo ""
 	@echo "Regenerate seed data"
 	@echo "  zt-overlay            The Zero Trust overlay (09, 11, 13) from the committed CISA mapping"
@@ -86,6 +92,7 @@ help:
 	@echo "  smoke                 The deployed health check and the ALB's target health"
 	@echo "  ecs-redeploy          Restart the service on its current image, re-reading its secrets"
 	@echo "  db-dr-test            Restore the database from a fresh snapshot to a throwaway instance"
+	@echo "  db-recover            Restore the database to a new instance, cut the app over and check it (CONFIRM=yes runs it)"
 	@echo ""
 	@echo "Destructive"
 	@echo "  db-reset              Drop this checkout's local database and rebuild it from the migrations and seed"
@@ -119,15 +126,20 @@ _stop-app-profiles:
 	@docker compose --profile container --profile debug rm --stop --force app app-debug 2>/dev/null || true
 
 # Internal: stop before starting when PORT is taken, naming what holds it, rather than
-# failing half-way through a start. Skipped where lsof is not installed.
+# failing half-way through a start. Asks lsof, then ss, which on Ubuntu under WSL2 sees
+# the Next.js dev server's listener where lsof has not; skipped where neither is installed.
 _check-port:
 	@if [ -z "$(PORT)" ]; then echo "❌ internal _check-port: PORT=<n> required"; exit 1; fi
-	@if command -v lsof >/dev/null 2>&1; then \
+	@holder=""; \
+	if command -v lsof >/dev/null 2>&1; then \
 		holder=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $$1 " (pid " $$2 ")"}'); \
-		if [ -n "$$holder" ]; then \
-			echo "❌ Port $(PORT) is already in use by $$holder. Stop it, or set $(PORT_VAR) to another port."; \
-			exit 1; \
-		fi; \
+	fi; \
+	if [ -z "$$holder" ] && command -v ss >/dev/null 2>&1; then \
+		holder=$$(ss -ltnpH "sport = :$(PORT)" 2>/dev/null | awk 'NR==1 { if (match($$0, /"[^"]*",pid=[0-9]+/)) { split(substr($$0, RSTART + 1, RLENGTH - 1), a, "\",pid="); print a[1] " (pid " a[2] ")" } else print "another process" }'); \
+	fi; \
+	if [ -n "$$holder" ]; then \
+		echo "❌ Port $(PORT) is already in use by $$holder. Stop it, or set $(PORT_VAR) to another port."; \
+		exit 1; \
 	fi
 
 # ============================================
@@ -220,11 +232,17 @@ container-smoke:
 	@curl -sf http://localhost:$(CONTAINER_APP_PORT)/api/health > /dev/null || { echo "❌ Health check failed"; exit 1; }
 	@echo "✅ Local container health check passed"
 
-# Build the runner locally and scan it for HIGH/CRITICAL CVEs (no AWS needed).
+# Build the runner locally and scan it against trivy.yaml (no AWS needed).
 container-scan: _require-trivy check-docker
 	docker build --target runner --platform linux/arm64 -t ztdr:scan-cve .
-	@echo "🔍 Scanning ztdr:scan-cve for HIGH/CRITICAL CVEs (--ignore-unfixed)..."
+	@echo "🔍 Scanning ztdr:scan-cve against trivy.yaml..."
 	$(TRIVY_SCAN) ztdr:scan-cve
+
+# Scan every base image the Dockerfile pins by digest against trivy.yaml, in seconds and
+# without a build; a finding in any of them, build stages' included, fails the run.
+# Needs `docker login dhi.io`, as a build does. See docs/scripts/scan-base.md.
+scan-base: _require-trivy
+	@./scripts/scan-base.sh Dockerfile
 
 # Build the runner locally and verify it carries every required runtime file.
 container-verify: check-docker
@@ -244,9 +262,11 @@ container-debug: check-docker _stop-app-profiles
 AWS_REGION ?= us-east-1
 
 # Commands more than one target runs, named once.
-#   TRIVY_SCAN        fails on a HIGH or CRITICAL CVE that has a fix; unfixable base-OS ones don't block
+#   TRIVY_SCAN        the scan policy in trivy.yaml: fails on a HIGH or CRITICAL CVE that has a fix,
+#                     less what security/vex.openvex.json records as not affecting the image, and
+#                     lists those suppressed findings. scripts/scan-base.sh reads the same file.
 #   RDS_BUNDLE_CHECK  exit 1 when the Dockerfile's RDS CA bundle pin no longer matches, 2 when it can't fetch
-TRIVY_SCAN = trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+TRIVY_SCAN = trivy image --config trivy.yaml
 RDS_BUNDLE_CHECK = python3 scripts/check-rds-bundle.py Dockerfile
 
 # ENV selects which environments/<env> Terraform stack, cluster, repository, task family and
@@ -347,8 +367,8 @@ ecr-login: _require-env check-docker _require-ecr
 ecr-push: _require-env _require-image-tag ecr-login
 	docker push $(ECR_REPO):$(IMAGE_TAG)
 
-# Build → check the runner image's files → scan it → push. Stops on a missing file or a
-# HIGH/CRITICAL CVE with a fix, so a broken or vulnerable image never reaches ECR.
+# Build → check the runner image's files → scan it → push. Stops on a missing file or on a
+# finding trivy.yaml fails, so a broken or vulnerable image never reaches ECR.
 #
 # Usage:  make ecr-build-push IMAGE_TAG=v0.1.7
 # Runbook: docs/runbooks/build-and-push-image.md
@@ -448,16 +468,16 @@ ecs-image-check: _require-env _require-image-tag check-docker _require-ecr
 	@echo "🔍 Checking $(IMAGE_TAG) for required runtime files..."
 	@$(MAKE) -s _image-file-check IMAGE=$(ECR_REPO):$(IMAGE_TAG)
 
-# Scan a published runner image for HIGH/CRITICAL CVEs. Local only — NOT a CI
+# Scan a published runner image against trivy.yaml. Local only — NOT a CI
 # gate (yet). Scans the ECR image for $(ENV) (default dev) at $(IMAGE_TAG) — the
-# already-published artifact — so it doesn't rebuild from the DHI base. Trivy
-# runs with --ignore-unfixed so unfixable base-OS CVEs don't block, and fails
-# (exit 1) on any remaining HIGH/CRITICAL. Requires trivy (brew install trivy)
-# and AWS auth for the env (ecr-login refreshes the registry token).
+# already-published artifact — so it doesn't rebuild from the DHI base. The policy
+# ignores CVEs with no fix yet and fails (exit 1) on any remaining HIGH/CRITICAL the
+# VEX file does not record as not affecting the image. Requires trivy (brew install
+# trivy) and AWS auth for the env (ecr-login refreshes the registry token).
 # Usage:  AWS_PROFILE=<env-profile> make image-scan ENV=dev IMAGE_TAG=v0.1.7
 # Runbook: docs/runbooks/build-and-push-image.md
 image-scan: _require-env _require-image-tag _require-trivy ecr-login
-	@echo "🔍 Scanning $(ECR_REPO):$(IMAGE_TAG) (ENV=$(ENV)) for HIGH/CRITICAL CVEs (--ignore-unfixed)..."
+	@echo "🔍 Scanning $(ECR_REPO):$(IMAGE_TAG) (ENV=$(ENV)) against trivy.yaml..."
 	$(TRIVY_SCAN) $(ECR_REPO):$(IMAGE_TAG)
 
 # Print the STS identity (account + assumed-role ARN) for whatever
@@ -476,7 +496,7 @@ aws-whoami:
 # which the old loop over the credentials file never read. Use when you have several profiles
 # and aren't sure which one maps to which env.
 aws-profiles-discover:
-	@aws configure list-profiles 2>/dev/null | while read p; do \
+	@aws configure list-profiles | while read p; do \
 		acct=$$(AWS_PROFILE=$$p aws sts get-caller-identity --query Account --output text --no-cli-pager 2>/dev/null || echo "(auth failed)"); \
 		printf "%-40s %s\n" "$$p" "$$acct"; \
 	done
@@ -741,8 +761,10 @@ seed-ecs-local:
 # Docker. Deliberately NOT part of ci-test, which stays fast and Docker-free
 # with `--project unit`; this selects the other project. Migrates with
 # `prisma migrate deploy`, as production does, and seeds through the pg driver
-# with the harness's own loader, so a test database never depends on how
-# seed.ts routes a seed.
+# with the harness's own loader. Also runs the seed loader itself into a
+# database of its own and checks every row the seed inserts arrived. It runs no
+# image scan: the suite uses none of the hardened bases, and pre-push scans those
+# before a branch is pushed.
 test-integration: check-docker
 	cd app && yarn test:integration
 
@@ -808,14 +830,14 @@ db-shell: check-docker
 # Run database migrations (from local host)
 db-migrate: _db-guard
 	@echo "Running migrations from app directory..."
-	cd app && yarn prisma migrate deploy
+	@cd app && yarn prisma migrate deploy
 	@$(MAKE) --no-print-directory db-generate
 
 # Regenerate the Prisma client and nothing else. Every other target that regenerates it also mutates the database — db-migrate and db-push write schema, db-ready reseeds — so checking out a branch just to typecheck it had no make target and meant reaching for yarn directly.
 # Runbook: docs/runbooks/prisma-client-troubleshooting.md
 db-generate:
 	@echo "Regenerating Prisma client..."
-	cd app && yarn prisma generate
+	@cd app && yarn prisma generate
 
 # Push schema to database (from local host)
 db-push: _db-guard
@@ -840,11 +862,11 @@ db-seed-check:
 # Seed the database with CATALOG's controls, nist-800-53 by default (validates the generated SQL first via db-seed-check)
 db-seed: _db-guard db-seed-check
 	@echo "Seeding database from catalog $(CATALOG)..."
-	cd app && SEED_CATALOG=$(CATALOG) yarn prisma db seed
+	@cd app && SEED_CATALOG=$(CATALOG) yarn prisma db seed
 	@echo "✅ Database seeded successfully"
 
 # ============================================
-# Disaster recovery (cloud RDS — see docs/runbooks/rds-snapshot-restore.md)
+# Disaster recovery (cloud RDS — see docs/runbooks/prod-db-recovery.md)
 # ============================================
 
 # DR dry-run: restore the ENV RDS DB from a fresh snapshot to a throwaway instance and
@@ -860,6 +882,33 @@ db-dr-test: _require-env
 # Runbook: docs/runbooks/rds-snapshot-restore.md
 db-dr-teardown: _require-env
 	@ENV=$(ENV) NAME_PREFIX=$(NAME_PREFIX) scripts/dr-restore-test.sh teardown
+
+# Recover the ENV database onto a new instance, cut the app over to it through Terraform, and
+# check the app's health and the seeded row counts (scripts/db-recover.sh). Prints every step
+# and calls nothing unless CONFIRM=yes. The source is one of SNAPSHOT=<id>,
+# RESTORE_TIME=<YYYY-MM-DDTHH:MM:SSZ> or LATEST=yes. TARGET=<id> names the new instance
+# (default: the instance an earlier run of the same recovery created, found by its tags, or a new
+# <name_prefix>-<env>-recovered-<YYYYMMDD-HHMM>). PHASE=restore|cutover|verify runs one phase;
+# cutover and verify need TARGET. SECRET_KMS_KEY_ID=<key> encrypts the new master secret with
+# another key than the live secret's. The live instance is only read.
+# NAME_PREFIX, as for every target here, is the stack's name_prefix, and reaches the script as
+# it does dr-restore-test.sh. Of the recovery's own variables only values given on the make
+# command line count, so a variable of the same name exported in the shell cannot change what
+# is restored. .github/workflows-export/db-recover.yml runs this target from a manually
+# triggered workflow, for a deployment that enables it.
+# Usage:  AWS_PROFILE=<env-profile> make db-recover ENV=dev SNAPSHOT=<snapshot-id>
+#         AWS_PROFILE=<env-profile> make db-recover ENV=dev SNAPSHOT=<snapshot-id> CONFIRM=yes
+# Runbook: docs/runbooks/prod-db-recovery.md
+_cli = $(if $(filter command line,$(origin $(1))),$($(1)))
+db-recover: _require-env
+	@NAME_PREFIX='$(NAME_PREFIX)' scripts/db-recover.sh --env $(ENV) \
+		$(if $(call _cli,SNAPSHOT),--snapshot '$(call _cli,SNAPSHOT)') \
+		$(if $(call _cli,RESTORE_TIME),--restore-time '$(call _cli,RESTORE_TIME)') \
+		$(if $(filter yes,$(call _cli,LATEST)),--latest) \
+		$(if $(call _cli,TARGET),--target '$(call _cli,TARGET)') \
+		$(if $(call _cli,PHASE),--phase '$(call _cli,PHASE)') \
+		$(if $(call _cli,SECRET_KMS_KEY_ID),--secret-kms-key-id '$(call _cli,SECRET_KMS_KEY_ID)') \
+		$(if $(filter yes,$(call _cli,CONFIRM)),--execute)
 
 # ============================================
 # Development Workflow
@@ -938,6 +987,14 @@ app-audit:
 # (check-version) and the URL format of the committed seed (ci-check-links). All offline.
 ci-check: app-check check-version ci-check-links
 
+# Before pushing a branch: scan-base, the one check a CI runner cannot run without a dhi.io
+# login, then the code checks, each through its own target: ci-check, ci-test and
+# db-seed-check (the code gates in .github/workflows-export/gates.yml) and
+# ci-prisma-validate. Left out: test-integration, which needs Docker and minutes, and
+# container-scan, a full image build that ecr-build-push runs before anything ships.
+pre-push: scan-base ci-check ci-test db-seed-check ci-prisma-validate
+	@echo "✅ pre-push: the code checks pass, and every pinned base image passes the scan"
+
 # Dependency installs for CI, so every workflow step is a make target and the
 # raw package-manager invocation lives in exactly one place.
 ci-install:
@@ -998,8 +1055,8 @@ test-seed-checks:
 	@$(MAKE) --no-print-directory ci-test-python PYTEST_FILES=test_check_seed_sql.py
 	@$(MAKE) --no-print-directory db-seed-check
 
-# The shell scripts under scripts/, with aws, docker and ps stubbed: nothing reaches AWS,
-# the network or a container.
+# The shell scripts under scripts/, with aws, docker, ps, terraform and trivy stubbed: nothing
+# reaches AWS, the network or a container.
 test-scripts:
 	@$(MAKE) --no-print-directory ci-test-python PYTEST_FILES=test_shell_scripts.py
 
@@ -1014,10 +1071,87 @@ test-api:
 	done
 	cd app && yarn test:run $(API_TEST_PATHS)
 
+# The seed pipeline: the generators' build steps, each run offline into a scratch
+# directory and compared with the seed and reports committed, and the loaders' helpers.
+# No network and no database. Each path must exist, as for test-api.
+PIPELINE_TEST_PATHS := prisma/generators prisma/__tests__
+test-pipeline:
+	@cd app && for p in $(PIPELINE_TEST_PATHS); do \
+		[ -e "$$p" ] || { echo "test-pipeline: app/$$p does not exist; update PIPELINE_TEST_PATHS"; exit 1; }; \
+	done
+	cd app && yarn test:run $(PIPELINE_TEST_PATHS)
+
+# The browser tests in app/e2e/: the built app against a throwaway seeded Postgres, in a
+# browser from Microsoft's Playwright image pinned by digest (app/e2e/global-setup.ts says
+# how the three are started). Builds the standalone server first, as the runner image does,
+# with its static files beside it, and removes the .env that next build copies in, which
+# the image does not carry either. Needs Docker.
+test-browser: check-docker _install-frostfall _browser-build
+	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" yarn playwright test
+
+# The accessibility scan alone: app/e2e/a11y.spec.ts, which runs frostfall over the page
+# states in app/e2e/frostfall/frostfall.yml. a11y-baseline rewrites that folder's
+# baseline.json with whatever the scan finds now; read the diff before committing it, and
+# give each new entry a note saying in words what fixes it, with no issue link or number.
+test-a11y: check-docker _install-frostfall _browser-build
+	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" yarn playwright test e2e/a11y.spec.ts
+
+a11y-baseline: check-docker _install-frostfall _browser-build
+	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" FROSTFALL_UPDATE_BASELINE=1 \
+		yarn playwright test e2e/a11y.spec.ts
+
+_browser-build:
+	cd app && SKIP_ENV_VALIDATION=1 NEXT_TELEMETRY_DISABLED=1 yarn build
+	@cd app && rm -rf .next/standalone/app/.next/static .next/standalone/app/public \
+		.next/standalone/app/.env .next/standalone/app/.env.* && \
+		cp -R .next/static .next/standalone/app/.next/static && \
+		cp -R public .next/standalone/app/public
+
+# frostfall, the accessibility scanner (https://github.com/aquia-inc/frostfall). It runs
+# inside the Playwright container on that image's Chromium, so this fetches the Linux build
+# for Docker's architecture, not the host's. Each tarball's sha256 is pinned here and must
+# also match the release's checksums.txt. The extracted binary's sha256 is pinned too and
+# checked before every use, so a binary changed on disk in app/.frostfall/<version>/ is
+# fetched and checked again rather than run. Moving to a new version means changing all
+# five values. The hash tool is sha256sum where it exists (minimal Linux images have it and
+# no Perl for shasum), else shasum -a 256; both print `hash  file`.
+FROSTFALL_VERSION := 1.4.2
+FROSTFALL_SHA256_Linux_x86_64 := c1434e865637f5bceba55d12d9af8759a11d68262b959f98815928487b929036
+FROSTFALL_SHA256_Linux_arm64 := a18881e8608ee4f10c58682d320dbb0613977c66a2445882521d94024378b987
+FROSTFALL_BIN_SHA256_Linux_x86_64 := 3a64183c802dffed2ad28ef5575f617d66a90b1037dc787ee48b4f9ba9f1852e
+FROSTFALL_BIN_SHA256_Linux_arm64 := 92b65f6240af01ed04e6971cef1e0473edaf788c5e78074185b0574b95bcbf08
+FROSTFALL_ARCH = $(if $(filter arm64 aarch64,$(shell docker version --format '{{.Server.Arch}}' 2>/dev/null)),arm64,x86_64)
+FROSTFALL_BIN = app/.frostfall/$(FROSTFALL_VERSION)/Linux_$(FROSTFALL_ARCH)/frostfall
+
+_install-frostfall: check-docker
+	@set -e; bin="$(FROSTFALL_BIN)"; asset="frostfall_Linux_$(FROSTFALL_ARCH).tar.gz"; \
+	want="$(FROSTFALL_SHA256_Linux_$(FROSTFALL_ARCH))"; \
+	want_bin="$(FROSTFALL_BIN_SHA256_Linux_$(FROSTFALL_ARCH))"; \
+	base="https://github.com/aquia-inc/frostfall/releases/download/v$(FROSTFALL_VERSION)"; \
+	if command -v sha256sum >/dev/null 2>&1; then sum="sha256sum"; \
+	elif command -v shasum >/dev/null 2>&1; then sum="shasum -a 256"; \
+	else echo "_install-frostfall: needs sha256sum or shasum"; exit 1; fi; \
+	if [ -x "$$bin" ]; then \
+		[ "$$($$sum "$$bin" | cut -d' ' -f1)" = "$$want_bin" ] && exit 0; \
+		echo "_install-frostfall: $$bin does not match its pinned sha256; fetching it again"; \
+	fi; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsSL --retry 3 --retry-all-errors -o "$$tmp/$$asset" "$$base/$$asset"; \
+	curl -fsSL --retry 3 --retry-all-errors -o "$$tmp/checksums.txt" "$$base/checksums.txt"; \
+	got=$$($$sum "$$tmp/$$asset" | cut -d' ' -f1); \
+	[ "$$got" = "$$want" ] || { echo "_install-frostfall: $$asset is $$got, pinned $$want"; exit 1; }; \
+	grep -qx "$$want  $$asset" "$$tmp/checksums.txt" || \
+		{ echo "_install-frostfall: $$asset's pinned sha256 is not in the release's checksums.txt"; exit 1; }; \
+	tar -xzf "$$tmp/$$asset" -C "$$tmp" frostfall; \
+	got=$$($$sum "$$tmp/frostfall" | cut -d' ' -f1); \
+	[ "$$got" = "$$want_bin" ] || { echo "_install-frostfall: the extracted binary is $$got, pinned $$want_bin"; exit 1; }; \
+	mkdir -p "$$(dirname "$$bin")"; mv "$$tmp/frostfall" "$$bin"; \
+	echo "_install-frostfall: $$bin ($(FROSTFALL_VERSION), sha256 checked)"
+
 # Every area above, in turn. Each new area adds its target here. CI does not run this
 # target: it runs ci-test and db-seed-check, so a new area's tests must also run through
 # one of those, or through a CI step of their own, or nothing gates them.
-test-matrix: test-seed-checks test-scripts test-api
+test-matrix: test-seed-checks test-scripts test-api test-pipeline test-browser
 
 # Validate Prisma schema
 ci-prisma-validate:

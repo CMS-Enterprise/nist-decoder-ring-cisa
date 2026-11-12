@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { product } from "~/config/product";
+
 import type { ControlFamily } from "./LayerCakeVisualization";
 import { matchesQuery, type FilterQuery } from "./filterPredicate";
 
@@ -16,23 +18,49 @@ interface FamilyColumnProps {
   hrefFor: (controlNumber: string) => string;
 }
 
-// Chip color per ZT alignment state — four hues so a user reads base-only / base +
-// enhancement(s) / enhancement-only / none at a glance (mirrors the legend in
-// LayerCakeVisualization). White text on blue-600, violet-600, and teal-700 each clears
-// WCAG AA (~5:1+) over the slate-50 canvas; the grey baseline uses dark slate text.
-// The chips are links, and the design system's unlayered `a` and `a:focus` rules beat
-// Tailwind's layered utilities: they take the text color, and on focus the background and
-// the outline. So the text colors and the focused background are marked important.
-const STATUS_CHIP_CLASSES: Record<string, string> = {
-  "zero-trust-aligned":
-    "border-blue-700 bg-blue-600 focus:bg-blue-600! text-white! hover:bg-blue-500",
-  "zt-aligned-with-enhancements":
-    "border-violet-700 bg-violet-600 focus:bg-violet-600! text-white! hover:bg-violet-500",
-  "zt-via-enhancements":
-    "border-teal-800 bg-teal-700 focus:bg-teal-700! text-white! hover:bg-teal-600",
-  compliance:
-    "border-slate-300 bg-slate-200 focus:bg-slate-200! text-slate-600! hover:bg-slate-300",
-};
+/**
+ * The four Zero Trust states a chip can show: base only, base and enhancements,
+ * enhancements only, and none. Each has its own color and its own glyph, so the state
+ * is never carried by color alone (WCAG 1.4.1), and the chip's accessible name says it
+ * in words. The fills also step in lightness, darker for more coverage, so they part in
+ * grayscale too (globals.css). The legend in LayerCakeVisualization reads this same list,
+ * so the two cannot drift. Text on each fill is at least 5.4:1, and stays above 4.5:1 on
+ * hover; docs/architecture/color-tokens.md has the pairs.
+ */
+export const ZT_STATES = [
+  {
+    status: "zero-trust-aligned",
+    label: "ZT Aligned",
+    glyph: "●",
+    chip: "border-ink/25 bg-state-aligned text-on-accent hover:brightness-110",
+  },
+  {
+    status: "zt-aligned-with-enhancements",
+    label: "ZT Aligned + Enhancements",
+    glyph: "◆",
+    chip: "border-ink/25 bg-state-aligned-enh text-on-accent hover:brightness-150 dark:hover:brightness-90",
+  },
+  {
+    status: "zt-via-enhancements",
+    label: "ZT Enhancements",
+    glyph: "▲",
+    chip: "border-border-strong bg-state-enh text-ink hover:brightness-110",
+  },
+  {
+    status: "compliance",
+    // The product names the mapping a control is missing from.
+    label: null,
+    glyph: "○",
+    chip: "border-border-strong bg-state-none text-state-none-ink hover:brightness-95",
+  },
+] as const;
+
+export type ZTState = (typeof ZT_STATES)[number];
+
+/** A control's state, with anything unrecognized read as not mapped. */
+export function ztStateOf(status: string): ZTState {
+  return ZT_STATES.find((s) => s.status === status) ?? ZT_STATES[3];
+}
 
 export default function FamilyColumn({
   family,
@@ -69,11 +97,11 @@ export default function FamilyColumn({
         Mixed case rather than uppercase: it is narrower per character and easier to read
         at this size, which is what buys the third line back.
       */}
-      <div className="group flex h-24 flex-col items-center justify-center gap-1 rounded-lg border border-emerald-500 bg-emerald-400 px-3 py-2 text-center text-slate-900 shadow-sm transition-all hover:bg-emerald-300">
+      <div className="border-success/40 bg-surface-family text-ink flex h-24 flex-col items-center justify-center gap-1 rounded-lg border px-3 py-2 text-center shadow-sm">
         <span className="text-[13px] leading-tight font-bold">
           {family.name}
         </span>
-        <span className="text-xs leading-none font-semibold tracking-widest text-emerald-900/70">
+        <span className="text-ink-muted text-xs leading-none font-semibold tracking-widest">
           {family.id}
         </span>
       </div>
@@ -81,7 +109,7 @@ export default function FamilyColumn({
       {/* Individual controls — a clean vertical stack with a small gap between chips. */}
       <div className="flex flex-col gap-1.5">
         {visibleControls.length === 0 ? (
-          <div className="px-2 py-3 text-center text-xs text-slate-400 italic">
+          <div className="text-ink-muted px-2 py-3 text-center text-xs italic">
             No controls
           </div>
         ) : (
@@ -91,10 +119,8 @@ export default function FamilyColumn({
             const dimmed =
               isActive && !reflow && !matchesQuery(control, query, textMatches);
             const baseClass =
-              "cursor-pointer truncate rounded-md border px-3 py-3 text-center text-sm font-bold shadow-md transition-all focus-visible:outline-2! focus-visible:outline-offset-2! focus-visible:outline-slate-900!";
-            const colorClass =
-              STATUS_CHIP_CLASSES[control.status] ??
-              STATUS_CHIP_CLASSES.compliance;
+              "cursor-pointer truncate rounded-md border px-3 py-3 text-center text-sm font-bold shadow-md transition-all";
+            const state = ztStateOf(control.status);
 
             // A link, so a reader can open a control in a new tab or copy its address.
             // No prefetch: the cake shows a few hundred chips, and each would ask the
@@ -108,9 +134,15 @@ export default function FamilyColumn({
                 prefetch={false}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
-                className={`${baseClass} ${colorClass} ${dimmed ? "opacity-30 grayscale" : ""}`}
+                className={`${baseClass} ${state.chip} ${dimmed ? "opacity-30 grayscale" : ""}`}
                 title={control.name}
+                // Named in full rather than through a visually hidden suffix, whose
+                // spacing the name computation does not keep.
+                aria-label={`${control.id}, ${state.label ?? product.baselineChipLabel}`}
               >
+                <span aria-hidden="true" className="mr-1.5 text-xs">
+                  {state.glyph}
+                </span>
                 {control.id}
               </Link>
             );

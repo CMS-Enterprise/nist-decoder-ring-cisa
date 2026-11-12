@@ -1,15 +1,14 @@
 /**
  * Load `prisma/seed-sql/*.sql` into a database, in filename order.
  *
- * This is the loop from `prisma/seed-ecs.ts`, copied rather than imported:
- * that file runs its loop at module load as the production ECS seed task, and
- * changing it to export the loop would touch production code from a test PR.
- * If the two drift, this comment is the pointer back.
+ * This is the loop from `prisma/seed-ecs.ts`, copied rather than imported. That
+ * file now exports it as `loadSeed`, which `prisma/seed.ts` and the ECS seed task
+ * both run, and this harness could import it too. If the two drift, this comment
+ * is the pointer back.
  *
- * Why `pg` directly and not `prisma db seed`: the configured seed command is
- * `prisma/seed.ts`, which sends a seed to the dev container when `DATABASE_URL`
- * names that container's database and to `psql` otherwise. Loading through `pg`
- * keeps a test database independent of that routing.
+ * Why `pg` directly and not `prisma db seed`: `prisma db seed` reads
+ * `DATABASE_URL` through `prisma.config.ts`, which loads `app/.env`. Calling a
+ * loader with the container's URL keeps a test database independent of that file.
  *
  * Why one `query()` per file: each file is one multi-statement string — the
  * largest, `06-control-parts.sql`, is 2,136 rows in a single INSERT — and

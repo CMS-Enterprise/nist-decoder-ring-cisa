@@ -19,6 +19,9 @@ export interface CopyLabels {
   discussionHeading: string;
   /** Suffix on an enhancement's own reference, e.g. "enhancement-specific". */
   enhancementChip: string;
+  relatedHeading: string;
+  /** Beside a related control the catalog does not select, e.g. "not in this catalog". */
+  relatedOutsideMarker: string;
 }
 
 /** The Copy button's text for one control, from the same record the files are written from. */
@@ -83,6 +86,18 @@ export function buildCopyText(
       ...references.map(
         (r) =>
           `  - ${r.label}${r.scope === "enhancement" ? ` (${labels.enhancementChip.toLowerCase()})` : ""}: ${r.url}`,
+      ),
+    );
+  }
+  // Related controls by number and title, so a reader can follow up; not their text.
+  const related = control.related ?? [];
+  if (related.length > 0) {
+    sections.push(
+      `${labels.relatedHeading}:`,
+      ...related.map((r) =>
+        r.name === null
+          ? `  - ${r.id} (${labels.relatedOutsideMarker})`
+          : `  - ${r.id} - ${r.name}`,
       ),
     );
   }

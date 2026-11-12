@@ -141,6 +141,35 @@ model ControlFamily {
   name      String // Full name: "Access Control", "Audit and Accountability"
   sortOrder Int // Display ordering (1-20)
   controls  NistControl[]
+
+  fips200Requirement Fips200Requirement? // FIPS 200 names 17 areas; PM, PT and SR have none
+}
+
+// ===== FIPS 199 AND FIPS 200 =====
+// The two standards that put a system into a baseline. FIPS 199 defines the three potential
+// impact levels a system is categorized at; FIPS 200 names the seventeen minimum security
+// requirement areas that the catalog's families answer. Neither changes, so both are seeded
+// from hand-written SQL (20-fips.sql) rather than a generator, and nothing reads them yet.
+
+model FipsImpactLevel {
+  id                String @id // "LOW", "MODERATE", "HIGH"
+  rank              Int    @unique // 1, 2, 3: the order the levels escalate in
+  effectPhrase      String // "limited adverse effect", as FIPS 199 words the level
+  definitionText    String @db.Text // The level's definition, as published
+  amplificationText String @db.Text // The amplification, as published
+  sourceUrl         String // The FIPS 199 PDF
+  pdfPage           Int // The PDF page the text is on, counted from 1 as a #page= anchor counts
+}
+
+model Fips200Requirement {
+  controlFamilyId String        @id // The family that answers the area: "AC", "AT"
+  controlFamily   ControlFamily @relation(fields: [controlFamilyId], references: [id], onDelete: Cascade)
+  sortOrder       Int           @unique // FIPS 200's own order of the seventeen areas
+  areaName        String // The area as FIPS 200 names it, which can differ from the family's name
+  requirementText String        @db.Text // The minimum security requirement, as published
+  sourceUrl       String // The FIPS 200 PDF
+  pdfPage         Int // The PDF page the text is on, counted from 1 as a #page= anchor counts
+  deepLink        String // sourceUrl with the page anchor, ready for a reference link
 }
 
 // ===== CORE CONTROLS =====
@@ -161,7 +190,6 @@ model NistControl {
   reviewFrequency     String? // "Annually (365 Days)"
   assessmentFrequency String? // "Three (3) Years"
   baselineLabels      String[] // PostgreSQL array: ["Low", "Moderate", "High"]
-  priority            String? // "P1", "P2", etc.
   relatedControls     String[] // PostgreSQL array: ["IA-1", "PM-9", "PM-24"]
   referencePolicy     String?       @db.Text // Legal/compliance references
   status              ControlStatus @default(LIVE)

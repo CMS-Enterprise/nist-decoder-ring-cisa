@@ -70,10 +70,7 @@ export default function ControlPicker({
   return (
     <div className="flex flex-col gap-2">
       {/* my-0!: the design system's unlayered label rule otherwise adds a top margin. */}
-      <label
-        htmlFor={inputId}
-        className="my-0! text-sm font-medium text-slate-700"
-      >
+      <label htmlFor={inputId} className="text-ink my-0! text-sm font-medium">
         Pick controls or enhancements
       </label>
       <input
@@ -90,14 +87,14 @@ export default function ControlPicker({
         }}
         placeholder="Control number or name, e.g. AC-02"
         aria-controls={resultsId}
-        className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        className="border-border-strong bg-surface text-ink placeholder:text-ink-muted focus:border-accent w-full max-w-md rounded-lg border px-3 py-1.5 text-sm"
       />
       <ul
         id={resultsId}
         aria-label="Matching controls"
         className={
           results.length > 0
-            ? "m-0! max-h-64 w-full max-w-md list-none! overflow-auto rounded-lg border border-slate-200 bg-white p-0!"
+            ? "border-border bg-surface m-0! max-h-64 w-full max-w-md list-none! overflow-auto rounded-lg border p-0!"
             : "hidden"
         }
       >
@@ -106,25 +103,21 @@ export default function ControlPicker({
             <button
               type="button"
               onClick={() => add(c.id)}
-              className="flex! w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 focus-visible:bg-blue-50 focus-visible:outline-none"
+              className="hover:bg-surface-canvas focus-visible:bg-accent-subtle flex! w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm"
             >
               <span
                 className={
                   c.withdrawn
-                    ? "shrink-0 font-semibold text-slate-400 line-through"
-                    : "shrink-0 font-semibold text-slate-800"
+                    ? "text-ink-muted shrink-0 font-semibold line-through"
+                    : "text-ink shrink-0 font-semibold"
                 }
               >
                 {c.id}
               </span>
-              <span
-                className={`min-w-0 truncate ${c.withdrawn ? "text-slate-400" : "text-slate-600"}`}
-              >
-                {c.name}
-              </span>
+              <span className="text-ink-muted min-w-0 truncate">{c.name}</span>
               {/* A withdrawn control is exported when picked, as the catalog last published it. */}
               {c.withdrawn && (
-                <span className="ml-auto shrink-0 pl-3 text-xs text-slate-400">
+                <span className="text-ink-muted ml-auto shrink-0 pl-3 text-xs">
                   withdrawn
                 </span>
               )}
@@ -133,7 +126,7 @@ export default function ControlPicker({
         ))}
       </ul>
       {term.length > 0 && controls && results.length === 0 && (
-        <p className="text-xs text-slate-500">
+        <p className="text-ink-muted text-xs">
           No unpicked control matches &ldquo;{text.trim()}&rdquo;.
         </p>
       )}
@@ -156,10 +149,10 @@ export default function ControlPicker({
                 }
                 aria-label={`Remove ${id}`}
                 title={names.get(id) ?? id}
-                className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="bg-surface-muted text-ink hover:bg-surface-strong flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
               >
                 {id}
-                <span aria-hidden className="text-slate-400">
+                <span aria-hidden className="text-ink-muted">
                   ×
                 </span>
               </button>
@@ -169,7 +162,7 @@ export default function ControlPicker({
             <button
               type="button"
               onClick={() => remove([])}
-              className="ml-1 text-xs font-medium text-blue-600 hover:underline"
+              className="text-accent ml-1 text-xs font-medium hover:underline"
             >
               Clear picks
             </button>

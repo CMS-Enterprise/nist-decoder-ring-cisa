@@ -1,0 +1,151 @@
+# Database recovery, as a workflow a deployment can enable.
+#
+# Restores an environment's database to a new RDS instance, cuts the app over to it through
+# Terraform and checks the result, by running `make db-recover`, the same target an operator
+# runs from a workstation. Triggered by hand only. Runbook: docs/runbooks/prod-db-recovery.md.
+#
+# This repository runs no workflow of its own. To run this one in yours:
+#
+#   1. Copy this file to .github/workflows/db-recover.yml.
+#   2. Uncomment everything below the line of dashes.
+#   3. Set `runs-on` to runners your organisation allows.
+#   4. Create a GitHub Environment for each environment you deploy, dev and prod, holding:
+#        DB_RECOVER_ROLE_ARN  A variable: the role the job assumes through GitHub OIDC. It
+#                             needs the permissions the runbook lists and what a terraform
+#                             apply of the environment needs, its state bucket included, and
+#                             a maximum session of at least six hours.
+#        TF_BACKEND_HCL       A variable: the environment's backend.hcl, which is
+#                             infra/bootstrap's output environment_backend_config.
+#        NAME_PREFIX          A variable: the stack's name_prefix, if it is not ztdr.
+#        TF_AUTO_TFVARS       A secret: every input your workstation supplies to the
+#                             environment's stack from a *.auto.tfvars file, such as vpc_id,
+#                             subnet_name_prefix, app_fqdn and alarm_email_endpoints. A plan
+#                             missing a required input fails, and one missing an optional
+#                             input the deployment sets plans a change the cutover refuses.
+#   5. Give the prod Environment a deployment protection rule that requires approval, so a
+#      prod run waits until someone named in the rule approves it, and restrict its
+#      deployment branches to your default branch, so a run never executes unmerged code.
+#
+# With the execute box unticked, the default, the run prints every step and calls nothing,
+# and no credentials are requested. A GitHub-hosted job stops after six hours; a restore
+# that takes longer is resumed by running the workflow again with the same inputs.
+#
+# Actions are pinned to full commit SHAs; keep them pinned when you update them.
+# ------------------------------------------------------------------------------
+# name: Database recovery
+#
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       environment:
+#         description: Environment to recover
+#         type: choice
+#         options: [dev, prod]
+#         required: true
+#       phase:
+#         description: All three phases, or one of them
+#         type: choice
+#         options: [all, restore, cutover, verify]
+#         default: all
+#       snapshot:
+#         description: "Source: a snapshot identifier"
+#         type: string
+#         default: ""
+#       restore_time:
+#         description: "Source: a point in time, UTC, YYYY-MM-DDTHH:MM:SSZ"
+#         type: string
+#         default: ""
+#       latest:
+#         description: "Source: the latest restorable time"
+#         type: boolean
+#         default: false
+#       target:
+#         description: The new instance, <name_prefix>-<env>-<suffix>; needed for cutover and verify
+#         type: string
+#         default: ""
+#       execute:
+#         description: Run the steps (unticked prints them and calls nothing)
+#         type: boolean
+#         default: false
+#
+# permissions:
+#   contents: read
+#   id-token: write
+#
+# # One recovery per environment at a time, and a second never cancels the first.
+# concurrency:
+#   group: db-recover-${{ inputs.environment }}
+#   cancel-in-progress: false
+#
+# jobs:
+#   recover:
+#     name: Recover ${{ inputs.environment }}
+#     runs-on: ubuntu-latest
+#     environment: ${{ inputs.environment }}
+#     # The longest a GitHub-hosted job may run. A restore that takes longer is resumed by
+#     # running the workflow again with the same inputs.
+#     timeout-minutes: 360
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#
+#       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+#         with:
+#           terraform_version: "1.14.9"
+#           # The script reads terraform show -json, which the wrapper's extra output would break.
+#           terraform_wrapper: false
+#
+#       # The stack's state backend and its estate inputs are never committed: write them where
+#       # a workstation keeps them. The inputs are written only for a run that executes.
+#       - name: Terraform backend and inputs
+#         env:
+#           STACK: infra/environments/${{ inputs.environment }}
+#           TF_BACKEND_HCL: ${{ vars.TF_BACKEND_HCL }}
+#           TF_AUTO_TFVARS: ${{ inputs.execute && secrets.TF_AUTO_TFVARS || '' }}
+#         run: |
+#           if [ -n "$TF_BACKEND_HCL" ]; then printf '%s\n' "$TF_BACKEND_HCL" > "$STACK/backend.hcl"; fi
+#           if [ -n "$TF_AUTO_TFVARS" ]; then printf '%s\n' "$TF_AUTO_TFVARS" > "$STACK/db-recover.auto.tfvars"; fi
+#
+#       - name: AWS credentials
+#         if: inputs.execute
+#         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+#         with:
+#           role-to-assume: ${{ vars.DB_RECOVER_ROLE_ARN }}
+#           aws-region: us-east-1
+#           role-session-name: db-recover-${{ github.run_id }}
+#           role-duration-seconds: 21600
+#           mask-aws-account-id: true
+#
+#       - name: make db-recover
+#         env:
+#           IN_ENVIRONMENT: ${{ inputs.environment }}
+#           IN_PHASE: ${{ inputs.phase }}
+#           IN_SNAPSHOT: ${{ inputs.snapshot }}
+#           IN_RESTORE_TIME: ${{ inputs.restore_time }}
+#           IN_LATEST: ${{ inputs.latest }}
+#           IN_TARGET: ${{ inputs.target }}
+#           IN_EXECUTE: ${{ inputs.execute }}
+#           IN_NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+#         run: |
+#           # The inputs reach make as values, never as shell text, and each is held to the
+#           # characters its value can contain before it does. The script checks each in full.
+#           allow() {
+#             if ! printf '%s' "$2" | grep -Eq "^$3\$"; then
+#               echo "::error::$1 holds characters it cannot contain"
+#               exit 1
+#             fi
+#           }
+#           allow snapshot "$IN_SNAPSHOT" '[A-Za-z0-9:-]*'
+#           allow restore_time "$IN_RESTORE_TIME" '[0-9TZ:-]*'
+#           allow target "$IN_TARGET" '[a-z0-9-]*'
+#           allow NAME_PREFIX "$IN_NAME_PREFIX" '[a-z0-9-]*'
+#
+#           set -- ENV="$IN_ENVIRONMENT" PHASE="$IN_PHASE"
+#           if [ -n "$IN_NAME_PREFIX" ]; then set -- "$@" NAME_PREFIX="$IN_NAME_PREFIX"; fi
+#           if [ -n "$IN_SNAPSHOT" ]; then set -- "$@" SNAPSHOT="$IN_SNAPSHOT"; fi
+#           if [ -n "$IN_RESTORE_TIME" ]; then set -- "$@" RESTORE_TIME="$IN_RESTORE_TIME"; fi
+#           if [ "$IN_LATEST" = true ]; then set -- "$@" LATEST=yes; fi
+#           if [ -n "$IN_TARGET" ]; then set -- "$@" TARGET="$IN_TARGET"; fi
+#           if [ "$IN_EXECUTE" = true ]; then set -- "$@" CONFIRM=yes; fi
+#           make db-recover "$@"

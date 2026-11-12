@@ -6,10 +6,26 @@
  * controls stay vivid. When the filter is inactive, nothing dims. Every control
  * (matching or dimmed) is a link to its address.
  */
-import { describe, it, expect } from "vitest";
+import type { ComponentProps } from "react";
+import type * as NextLink from "next/link";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-import FamilyColumn from "../FamilyColumn";
+// The real Link, with its prefetch prop echoed onto the <a> as data-prefetch: prefetch
+// only runs in a production build, so jsdom gives no other way to see it.
+vi.mock("next/link", async (importOriginal) => {
+  const { createElement } = await import("react");
+  const { default: Link } = await importOriginal<typeof NextLink>();
+  return {
+    default: (props: ComponentProps<typeof Link>) =>
+      createElement(Link, {
+        ...props,
+        "data-prefetch": String(props.prefetch),
+      } as ComponentProps<typeof Link>),
+  };
+});
+
+import FamilyColumn, { ZT_STATES } from "../FamilyColumn";
 import type { NistControl, ControlFamily } from "../LayerCakeVisualization";
 import type { FilterQuery } from "../filterPredicate";
 
@@ -56,9 +72,10 @@ function family(controls: NistControl[]): ControlFamily {
   return { id: "AC", name: "Access Control", controls };
 }
 
-// The control button renders its id as visible text; find it by accessible name.
+// A chip's accessible name is its id, then its Zero Trust state ("AC-02, ZT Aligned").
 function controlLink(id: string): HTMLElement {
-  return screen.getByRole("link", { name: id });
+  const escaped = id.replace(/[()]/g, "\\$&");
+  return screen.getByRole("link", { name: new RegExp(`^${escaped},`) });
 }
 
 describe("FamilyColumn — filter-aware dimming", () => {
@@ -159,6 +176,24 @@ describe("FamilyColumn — filter-aware dimming", () => {
       "href",
       "/control/AC-03?pillar=IDENTITY",
     );
+  });
+
+  it("turns prefetch off on every chip", () => {
+    // In a production build a chip with prefetch on asks the server for its control as
+    // soon as it is on screen, which is several hundred requests when the cake loads.
+    render(
+      <FamilyColumn
+        family={family([control({ id: "AC-02" }), control({ id: "AC-03" })])}
+        query={EMPTY_QUERY}
+        isActive={false}
+        reflow={false}
+        hrefFor={hrefFor}
+      />,
+    );
+
+    for (const id of ["AC-02", "AC-03"]) {
+      expect(controlLink(id)).toHaveAttribute("data-prefetch", "false");
+    }
   });
 
   it("links a dimmed (non-matching) chip too", () => {
@@ -327,23 +362,22 @@ describe("FamilyColumn — reflow (collapse to matches)", () => {
   });
 });
 
-describe("FamilyColumn — chip color per ZT alignment state", () => {
-  // The chips are links, and where a design system's unlayered `a` and `a:focus` rules
-  // are loaded they beat a layered utility, so the text color and the focused background only hold
-  // when marked important.
+describe("FamilyColumn — chip per ZT alignment state", () => {
+  // Each state has its own color token and its own glyph, and the chip's name says it,
+  // so the state is never shown by color alone.
   it.each([
-    ["zero-trust-aligned", "bg-blue-600", "focus:bg-blue-600!", "text-white!"],
+    ["zero-trust-aligned", "bg-state-aligned", "●", "AC-02, ZT Aligned"],
     [
       "zt-aligned-with-enhancements",
-      "bg-violet-600",
-      "focus:bg-violet-600!",
-      "text-white!",
+      "bg-state-aligned-enh",
+      "◆",
+      "AC-02, ZT Aligned + Enhancements",
     ],
-    ["zt-via-enhancements", "bg-teal-700", "focus:bg-teal-700!", "text-white!"],
-    ["compliance", "bg-slate-200", "focus:bg-slate-200!", "text-slate-600!"],
+    ["zt-via-enhancements", "bg-state-enh", "▲", "AC-02, ZT Enhancements"],
+    ["compliance", "bg-state-none", "○", "AC-02, Not in CISA's mapping"],
   ] as const)(
-    "renders %s with %s, kept on focus, and %s text",
-    (status, bgClass, focusBgClass, textClass) => {
+    "renders %s with %s, the %s glyph, and its state in the name",
+    (status, bgClass, glyph, name) => {
       render(
         <FamilyColumn
           family={family([control({ id: "AC-02", status })])}
@@ -353,28 +387,15 @@ describe("FamilyColumn — chip color per ZT alignment state", () => {
           hrefFor={hrefFor}
         />,
       );
-      expect(controlLink("AC-02")).toHaveClass(
-        bgClass,
-        focusBgClass,
-        textClass,
-      );
+      const chip = screen.getByRole("link", { name });
+      expect(chip).toHaveClass(bgClass);
+      expect(chip).toHaveTextContent(`${glyph}AC-02`);
     },
   );
 
-  it("gives a keyboard-focused chip its own outline, which a:focus would remove", () => {
-    render(
-      <FamilyColumn
-        family={family([control({ id: "AC-02", status: "compliance" })])}
-        query={EMPTY_QUERY}
-        isActive={false}
-        reflow={false}
-        hrefFor={hrefFor}
-      />,
-    );
-    expect(controlLink("AC-02")).toHaveClass(
-      "focus-visible:outline-2!",
-      "focus-visible:outline-offset-2!",
-      "focus-visible:outline-slate-900!",
-    );
+  it("gives every state a different glyph and color", () => {
+    expect(new Set(ZT_STATES.map((s) => s.glyph)).size).toBe(ZT_STATES.length);
+    const fills = ZT_STATES.map((s) => /bg-state-[a-z-]+/.exec(s.chip)?.[0]);
+    expect(new Set(fills).size).toBe(ZT_STATES.length);
   });
 });

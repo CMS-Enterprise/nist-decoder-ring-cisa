@@ -61,6 +61,32 @@ CREATE TABLE "ControlFamily" (
 );
 
 -- CreateTable
+CREATE TABLE "FipsImpactLevel" (
+    "id" TEXT NOT NULL,
+    "rank" INTEGER NOT NULL,
+    "effectPhrase" TEXT NOT NULL,
+    "definitionText" TEXT NOT NULL,
+    "amplificationText" TEXT NOT NULL,
+    "sourceUrl" TEXT NOT NULL,
+    "pdfPage" INTEGER NOT NULL,
+
+    CONSTRAINT "FipsImpactLevel_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Fips200Requirement" (
+    "controlFamilyId" TEXT NOT NULL,
+    "sortOrder" INTEGER NOT NULL,
+    "areaName" TEXT NOT NULL,
+    "requirementText" TEXT NOT NULL,
+    "sourceUrl" TEXT NOT NULL,
+    "pdfPage" INTEGER NOT NULL,
+    "deepLink" TEXT NOT NULL,
+
+    CONSTRAINT "Fips200Requirement_pkey" PRIMARY KEY ("controlFamilyId")
+);
+
+-- CreateTable
 CREATE TABLE "NistControl" (
     "id" TEXT NOT NULL,
     "controlNumber" TEXT NOT NULL,
@@ -71,7 +97,6 @@ CREATE TABLE "NistControl" (
     "reviewFrequency" TEXT,
     "assessmentFrequency" TEXT,
     "baselineLabels" TEXT[],
-    "priority" TEXT,
     "relatedControls" TEXT[],
     "referencePolicy" TEXT,
     "status" "ControlStatus" NOT NULL DEFAULT 'LIVE',
@@ -378,6 +403,12 @@ CREATE UNIQUE INDEX "NistVersion_catalogKey_key" ON "NistVersion"("catalogKey");
 CREATE INDEX "NistVersion_isActive_idx" ON "NistVersion"("isActive");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "FipsImpactLevel_rank_key" ON "FipsImpactLevel"("rank");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Fips200Requirement_sortOrder_key" ON "Fips200Requirement"("sortOrder");
+
+-- CreateIndex
 CREATE INDEX "NistControl_controlFamilyId_nistVersionId_idx" ON "NistControl"("controlFamilyId", "nistVersionId");
 
 -- CreateIndex
@@ -529,6 +560,9 @@ CREATE UNIQUE INDEX "VerificationToken_token_key" ON "VerificationToken"("token"
 
 -- CreateIndex
 CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "VerificationToken"("identifier", "token");
+
+-- AddForeignKey
+ALTER TABLE "Fips200Requirement" ADD CONSTRAINT "Fips200Requirement_controlFamilyId_fkey" FOREIGN KEY ("controlFamilyId") REFERENCES "ControlFamily"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "NistControl" ADD CONSTRAINT "NistControl_controlFamilyId_fkey" FOREIGN KEY ("controlFamilyId") REFERENCES "ControlFamily"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

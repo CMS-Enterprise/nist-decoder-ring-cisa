@@ -11,7 +11,7 @@
  *
  * Deterministic: the same four inputs produce byte-identical files.
  *
- *   tsx prisma/generators/zt-reference-links/build.ts [--corpus cisa] [--catalog nist-800-53] [--out-dir <dir>]
+ *   tsx prisma/generators/zt-reference-links/build.ts [--corpus cisa] [--catalog nist-800-53] [--out-dir <dir>] [--reports-dir <dir>]
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -77,7 +77,9 @@ function main(): void {
   const outputDir =
     option("out-dir") ?? resolve(HERE, "../../seed-sql", catalogDir);
   const dataDir = resolve(HERE, "../../sources/reference-links", corpus);
-  const reportsDir = resolve(HERE, "../../reports/reference-links", corpus);
+  const reportsDir =
+    option("reports-dir") ??
+    resolve(HERE, "../../reports/reference-links", corpus);
   const about = CORPORA[corpus];
   if (!about) {
     throw new Error(
@@ -181,7 +183,7 @@ function main(): void {
     }),
   );
   console.log(
-    `\n  wrote ${SEED_FILE}, reports/reference-links/${corpus}/registry.csv, reports/reference-links/${corpus}/redirects.md`,
+    `\n  wrote ${SEED_FILE}, ${join(reportsDir, "registry.csv")}, ${join(reportsDir, "redirects.md")}`,
   );
   console.log(`\nDone.`);
 }

@@ -119,7 +119,6 @@ const DETAIL_KEYS = [
   "nistLinks",
   "oscalId",
   "parts",
-  "priority",
   "referenceProvenance",
   "reviewFrequency",
   "status",

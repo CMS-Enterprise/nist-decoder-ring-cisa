@@ -1,0 +1,24 @@
+# The image scan policy, in one place. Every trivy run in the Makefile reads this file:
+# container-scan, the CVE gate in ecr-build-push, image-scan, and scan-base. Change the
+# policy here, not in a target. The keys are trivy's own flag names, nested as
+# `trivy image --generate-default-config` writes them; a flag given on the command line
+# overrides the value here. Paths are relative to the repository root, where make runs.
+# Docs: docs/testing.md (Image scans)
+
+# Fail on a HIGH or CRITICAL vulnerability.
+severity:
+  - HIGH
+  - CRITICAL
+exit-code: 1
+
+vulnerability:
+  # A vulnerability with no fixed version yet does not fail the scan: there is nothing to
+  # move to until the distribution ships a fix.
+  ignore-unfixed: true
+  # Vulnerabilities assessed as not affecting this image, each with its evidence.
+  vex:
+    - security/vex.openvex.json
+
+scan:
+  # List what the VEX file suppressed beside what was found, so no suppression is silent.
+  show-suppressed: true

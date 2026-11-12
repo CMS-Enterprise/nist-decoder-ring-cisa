@@ -18,7 +18,8 @@ export interface ExportSheet {
 /**
  * One worksheet per dataset, each row led by the control's id so sheets join on it.
  * "Controls" always comes first: the selection itself, one row per control, with a
- * column for each single-valued field chosen. Frequency, having several, gets a sheet.
+ * column for each single-valued field chosen. Frequency and related controls, having
+ * several, get a sheet each.
  */
 export function exportSheets(record: ExportRecord): ExportSheet[] {
   const { controls, datasets, fields } = record;
@@ -55,6 +56,20 @@ export function exportSheets(record: ExportRecord): ExportSheet[] {
           f.pane === "catalog" ? "Catalog" : "Zero Trust",
           f.label,
           f.value,
+        ]),
+      ),
+    });
+  }
+  if (fields.includes("related")) {
+    sheets.push({
+      name: "Related",
+      header: ["Control", "Related control", "Name", "In this catalog"],
+      rows: controls.flatMap((c) =>
+        (c.related ?? []).map((r) => [
+          c.id,
+          r.id,
+          r.name,
+          r.name === null ? "No" : "Yes",
         ]),
       ),
     });

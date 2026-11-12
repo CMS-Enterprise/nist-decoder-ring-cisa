@@ -44,6 +44,13 @@ Confirm each before applying anything:
 - [ ] Change is merged to `main` (or the intended release branch) and the image tag is
       built and present in the **prod** ECR repo (`aws ecr describe-images
       --repository-name ztdr-prod`).
+- [ ] The image passed the scan in `trivy.yaml` (`ecr-build-push` runs it before the
+      push). A finding listed under "Suppressed Vulnerabilities" is one
+      `security/vex.openvex.json` records as not affecting the image, with its evidence;
+      read it, do not wave it through. A new HIGH or CRITICAL finding stops the release:
+      `make scan-base` shows whether it is in the base image, and
+      `make refresh-image-digests` moves the base to a fixed digest (see
+      [`docs/testing.md`](../testing.md#image-scans)).
 - [ ] `make check-deploy-safety ENV=prod` passes. This compares the committed
       `container_image_tag` against the tag actually running and fails on a
       downgrade. Applying a branch whose tfvars lag production rolls prod
@@ -84,7 +91,8 @@ the full order matters for a from-scratch standup or a cross-cutting change.
    `AUTH_SECRET` lands here (the service redeploy is folded into the same apply via the
    `triggers` input).
 4. **Database** — RDS changes. Note: some RDS changes (instance class, multi-AZ) cause a
-   brief failover/downtime; schedule accordingly.
+   brief failover/downtime; schedule accordingly. Prod runs single-AZ, so losing the
+   instance is a restore to a new one ([`prod-db-recovery.md`](./prod-db-recovery.md)).
 5. **Compute** — ECS service + task definitions + ALB. The image-tag bump and most
    releases live here.
 6. **Migrate** — run the one-off `ztdr-prod-migrate` task **after** the new task def exists

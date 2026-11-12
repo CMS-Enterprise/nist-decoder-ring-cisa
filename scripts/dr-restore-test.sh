@@ -4,8 +4,8 @@
 # `restore`  — snapshot <name_prefix>-<env>, restore it to a throwaway instance
 #              (<name_prefix>-<env>-restore-test), enable a managed master secret on the
 #              restore, and print connection details. ADDITIVE — the live DB is
-#              never touched. The app cutover is a deliberate manual step; see
-#              docs/runbooks/rds-snapshot-restore.md.
+#              never touched. It does not cut the app over: scripts/db-recover.sh
+#              restores, cuts over and checks (docs/runbooks/prod-db-recovery.md).
 # `teardown` — delete the throwaway instance (no final snapshot) and the drtest
 #              snapshots, so nothing lingers / accrues cost.
 #
@@ -57,8 +57,8 @@ case "$ACTION" in
     rds describe-db-instances --db-instance-identifier "$TGT" \
       --query 'DBInstances[0].{endpoint:Endpoint.Address,secret:MasterUserSecret.SecretArn}' --output table
     echo ""
-    echo "Next (manual, see docs/runbooks/rds-snapshot-restore.md): grant the app task role read on"
-    echo "the secret above, repoint DB_HOST/DB_SECRET_ARN, redeploy, verify, then: make db-dr-teardown ENV=${ENV}"
+    echo "Next: validate it, then make db-dr-teardown ENV=${ENV}. To restore and cut the app over"
+    echo "in one run, use make db-recover (docs/runbooks/prod-db-recovery.md)."
     ;;
 
   teardown)

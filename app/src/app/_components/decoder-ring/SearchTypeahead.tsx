@@ -87,12 +87,12 @@ export default function SearchTypeahead({ hrefFor }: SearchTypeaheadProps) {
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder="Search controls — number, name, or text"
           aria-label="Search controls"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none"
+          className="border-border-strong bg-surface text-ink placeholder:text-ink-muted focus:border-accent w-full rounded-lg border px-3 py-1.5 text-sm"
         />
         {hrefFor && open && debounced.length >= 2 && (
-          <ul className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          <ul className="border-border bg-surface absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-lg border shadow-lg">
             {hits.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-slate-400">
+              <li className="text-ink-muted px-3 py-2 text-sm">
                 No controls match &ldquo;{debounced}&rdquo;
               </li>
             ) : (
@@ -106,28 +106,30 @@ export default function SearchTypeahead({ hrefFor }: SearchTypeaheadProps) {
                     // Cancelling the mouse-down keeps focus in the input, so its onBlur
                     // doesn't close the dropdown before the click lands and navigates.
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setOpen(false)}
-                    className="flex w-full items-baseline gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    // A modified click is one Link leaves to the browser (a new tab or
+                    // window, or a download), and this page stays where it was, so the
+                    // list stays open for the next result. A new window that takes focus
+                    // still closes it, through the box's blur, as any move away does.
+                    onClick={(e) => {
+                      if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                        setOpen(false);
+                      }
+                    }}
+                    className="hover:bg-surface-canvas flex w-full items-baseline gap-3 px-3 py-2 text-left text-sm"
                   >
                     <span className="min-w-0 truncate">
                       <span
                         className={
                           hit.withdrawn
-                            ? "font-semibold text-slate-400 line-through"
-                            : "font-semibold text-slate-800"
+                            ? "text-ink-muted font-semibold line-through"
+                            : "text-ink font-semibold"
                         }
                       >
                         {hit.controlNumber}
                       </span>{" "}
-                      <span
-                        className={
-                          hit.withdrawn ? "text-slate-400" : "text-slate-600"
-                        }
-                      >
-                        {hit.controlName}
-                      </span>
+                      <span className="text-ink-muted">{hit.controlName}</span>
                     </span>
-                    <span className="ml-auto shrink-0 pl-3 text-xs text-slate-400">
+                    <span className="text-ink-muted ml-auto shrink-0 pl-3 text-xs">
                       {hit.withdrawn
                         ? "withdrawn"
                         : (MATCH_LABELS[hit.matchedIn] ?? hit.matchedIn)}
@@ -140,12 +142,12 @@ export default function SearchTypeahead({ hrefFor }: SearchTypeaheadProps) {
         )}
       </div>
       {hrefFor && (
-        <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+        <label className="text-ink-muted inline-flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
             checked={includeWithdrawn}
             onChange={(e) => setIncludeWithdrawn(e.target.checked)}
-            className="h-3.5 w-3.5 rounded border-slate-300"
+            className="border-border-strong h-3.5 w-3.5 rounded"
           />
           Search withdrawn controls
         </label>

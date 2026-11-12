@@ -7,8 +7,6 @@
  * NOT survive a Clear all.
  *
  * Mocks:
- *  - next/navigation: opening a control is a router.push to its address; the spy
- *    records where.
  *  - ~/trpc/react: getBridgeData returns a tiny two-family dataset; searchControls
  *    (used by SearchTypeahead) returns no hits. Matches the per-call useQuery override
  *    pattern from ControlModal.default.test.tsx / SearchTypeahead.test.tsx.
@@ -63,8 +61,17 @@ vi.mock("react-zoom-pan-pinch", () => ({
   ),
 }));
 
+// The footer's version line reads ~/config/version; a getter lets each test set it.
+let mockAppVersion: string | undefined;
+vi.mock("~/config/version", () => ({
+  get appVersion() {
+    return mockAppVersion;
+  },
+}));
+
 // Import AFTER mocks are registered.
 import DecoderRing from "../DecoderRing";
+import { product } from "~/config/product";
 
 // jsdom has no ResizeObserver; LayerCakeVisualization instantiates one in an effect.
 beforeAll(() => {
@@ -143,6 +150,7 @@ beforeEach(() => {
   }));
   mockSearchQuery = vi.fn(() => ({ data: { hits: [], matchingIds: [] } }));
   mockControlByIdQuery = vi.fn(() => ({ data: undefined, isLoading: false }));
+  mockAppVersion = undefined;
 });
 
 describe("DecoderRing — export link", () => {
@@ -355,5 +363,37 @@ describe("DecoderRing header accessory", () => {
       },
     );
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+});
+
+describe("DecoderRing footer version", () => {
+  it("shows the version the bundle was built from under the attribution", () => {
+    mockAppVersion = "0.1.16";
+    renderDecoderRing("");
+    const footer = screen.getByRole("contentinfo");
+    expect(
+      within(footer).getByText(product.footerAttribution),
+    ).toBeInTheDocument();
+    expect(within(footer).getByText("v0.1.16")).toBeInTheDocument();
+  });
+
+  it("shows the version while the catalog is still loading", () => {
+    mockAppVersion = "0.1.16";
+    mockBridgeQuery = vi.fn(() => ({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    }));
+    renderDecoderRing("");
+    expect(
+      within(screen.getByRole("contentinfo")).getByText("v0.1.16"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no version line when the build supplied none", () => {
+    renderDecoderRing("");
+    const footer = screen.getByRole("contentinfo");
+    expect(footer.querySelectorAll("p")).toHaveLength(1);
+    expect(footer).toHaveTextContent(product.footerAttribution);
   });
 });

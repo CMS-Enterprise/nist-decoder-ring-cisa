@@ -8,6 +8,7 @@ vi.hoisted(() => {
     "postgresql://placeholder:placeholder@localhost:5432/placeholder";
 });
 
+import { product } from "~/config/product";
 import { buildCopyText } from "../copy-text";
 import { bookmarkFor, writeDocx } from "../docx";
 import {
@@ -15,7 +16,12 @@ import {
   toExportControl,
   type DetailSource,
 } from "../from-detail";
-import { EXPORT_DATASETS, EXPORT_FIELDS, type ExportRecord } from "../record";
+import {
+  EXPORT_DATASETS,
+  EXPORT_FIELDS,
+  NO_MATCHING_ROW,
+  type ExportRecord,
+} from "../record";
 import {
   exportSelectionSchema,
   loadExportSelection,
@@ -33,6 +39,8 @@ import {
 const LABELS = {
   discussionHeading: "Discussion",
   enhancementChip: "Enhancement-specific",
+  relatedHeading: "Related controls",
+  relatedOutsideMarker: "not in this catalog",
 };
 
 const detail = (over: Partial<DetailSource> = {}): DetailSource => ({
@@ -118,6 +126,7 @@ describe("toExportControl", () => {
     expect(c.frequency).toBeUndefined();
     expect(c.priority).toBeUndefined();
     expect(c.lineage).toBeUndefined();
+    expect(c.related).toBeUndefined();
   });
 
   it("on an enhancement with no frequency of its own, names its base's in words", () => {
@@ -860,6 +869,37 @@ describe("the writers", () => {
       expect(doc).toContain(text);
   });
 
+  it("bullets related controls, linking the ones in the document to their headings", async () => {
+    const r = record();
+    r.controls[1]!.related = [
+      { id: "AC-02", name: "Account Management" },
+      { id: "AC-03", name: "Access Enforcement" },
+      { id: "SC-37", name: null },
+    ];
+    const doc = strFromU8(
+      unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+    );
+    expect(doc).toContain(
+      `<w:hyperlink w:anchor="${bookmarkFor("AC-02")}" w:history="1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t xml:space="preserve">AC-02 - Account Management</w:t>`,
+    );
+    expect(doc).toContain(
+      '<w:t xml:space="preserve">AC-03 - Access Enforcement</w:t></w:r></w:p>',
+    );
+    expect(doc).toContain(`SC-37 (${product.relatedOutsideMarker})`);
+  });
+
+  it("says when a filter left a control no Zero Trust row, and only then", async () => {
+    const r = record();
+    r.controls[0]!.zeroTrust = [];
+    const doc = async () =>
+      strFromU8(
+        unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+      );
+    expect(await doc()).not.toContain(NO_MATCHING_ROW);
+    r.zeroTrustFiltered = true;
+    expect(await doc()).toContain(NO_MATCHING_ROW);
+  });
+
   it("wires settings.xml in, in Word 2013's compatibility mode", async () => {
     const parts = unzipSync(new Uint8Array(await writeDocx(record())));
     const text = (path: string) => strFromU8(parts[path]!);
@@ -926,5 +966,181 @@ describe("the writers", () => {
   it("names bookmarks Word accepts", () => {
     expect(bookmarkFor("AC-02(01)")).toBe("c_AC_02_01_");
     expect(bookmarkFor("x".repeat(60))).toHaveLength(40);
+  });
+});
+
+describe("the DOCX lists", () => {
+  const STATEMENT = [
+    "Root prose.",
+    "  Low: x",
+    "a. One",
+    "  1. Sub one",
+    "    (a) Deep",
+    "      (1) Deeper",
+    "    (b) Deep two",
+    "  2. Sub two",
+    "    Moderate: y",
+    "b. Two",
+    "  1. Restarts",
+    "d. Skips c",
+    "aa. Not a shape it numbers",
+  ].join("\n");
+
+  async function parts(statement: string, discussion: string | null = null) {
+    const r = record();
+    r.controls = r.controls.slice(0, 1);
+    r.controls[0]!.statement = { text: statement, discussion, parameters: [] };
+    const zip = unzipSync(new Uint8Array(await writeDocx(r)));
+    return {
+      doc: strFromU8(zip["word/document.xml"]!),
+      numbering: strFromU8(zip["word/numbering.xml"]!),
+    };
+  }
+
+  // Word's drawing of each numbered paragraph: its level, its label and its text.
+  function rendered(doc: string, numbering: string) {
+    const abstracts = new Map(
+      [
+        ...numbering.matchAll(
+          /<w:abstractNum w:abstractNumId="(\d+)">(.*?)<\/w:abstractNum>/g,
+        ),
+      ].map((m) => [
+        m[1],
+        new Map(
+          [
+            ...m[2]!.matchAll(
+              /<w:lvl w:ilvl="(\d)">.*?<w:numFmt w:val="(\w+)"\/><w:lvlText w:val="([^"]*)"\/>/g,
+            ),
+          ].map((l) => [Number(l[1]), { fmt: l[2]!, text: l[3]! }]),
+        ),
+      ]),
+    );
+    const nums = new Map(
+      [
+        ...numbering.matchAll(
+          /<w:num w:numId="(\d+)"><w:abstractNumId w:val="(\d+)"\/>(?:<w:lvlOverride w:ilvl="\d"><w:startOverride w:val="(\d+)"\/>)?/g,
+        ),
+      ].map((m) => [m[1]!, { abstract: m[2]!, start: Number(m[3] ?? 1) }]),
+    );
+    const counters = new Map<string, number>();
+    return [
+      ...doc.matchAll(
+        /<w:numPr><w:ilvl w:val="(\d)"\/><w:numId w:val="(\d+)"\/><\/w:numPr>.*?<w:t xml:space="preserve">([^<]*)<\/w:t>/g,
+      ),
+    ].map(([, ilvl, numId, text]) => {
+      const level = Number(ilvl);
+      const num = nums.get(numId!)!;
+      const lvl = abstracts.get(num.abstract)!.get(level)!;
+      const key = `${numId}:${level}`;
+      const n = (counters.get(key) ?? num.start - 1) + 1;
+      counters.set(key, n);
+      const mark =
+        lvl.fmt === "lowerLetter"
+          ? String.fromCharCode(96 + n)
+          : lvl.fmt === "decimal"
+            ? String(n)
+            : lvl.text;
+      return {
+        level,
+        label: lvl.fmt === "bullet" ? "" : lvl.text.replace(/%\d/, mark),
+        text,
+      };
+    });
+  }
+
+  it("numbers every statement item with the catalog's own label, nested by depth", async () => {
+    const { doc, numbering } = await parts(STATEMENT);
+    const items = rendered(doc, numbering).filter((i) => i.label);
+    const expected = STATEMENT.split("\n")
+      .filter((l) => /^\s*(?:[a-z]\.|\d\.|\([a-z\d]\))\s/.test(l))
+      .map((l) => {
+        const [, label, text] = /^\s*(\S+) (.*)$/.exec(l)!;
+        return { level: (l.length - l.trimStart().length) / 2, label, text };
+      });
+    expect(items).toEqual(expected);
+  });
+
+  it("starts each list afresh, and a new list where a label skips", async () => {
+    const { numbering } = await parts(STATEMENT);
+    // a/b, 1/2, (a)/(b), (1), the second 1, then d.
+    const overrides = [
+      ...numbering.matchAll(
+        /<w:lvlOverride w:ilvl="(\d)"><w:startOverride w:val="(\d+)"\/>/g,
+      ),
+    ].map((m) => `${m[1]}@${m[2]}`);
+    expect(overrides).toEqual(["0@1", "1@1", "2@1", "3@1", "1@1", "0@4"]);
+    // One definition per label style, each level hanging under its parent's text.
+    expect(numbering.match(/<w:abstractNum /g)).toHaveLength(5);
+    expect(numbering).toContain(
+      '<w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="(%3)"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="1296" w:hanging="432"/>',
+    );
+  });
+
+  it("nests sub-items the catalog wrote unindented in an item's prose", async () => {
+    const { doc, numbering } = await parts(
+      "a. For public systems:\n1. Display\n(a) Note\n2. Retain\nb. Two",
+    );
+    expect(
+      rendered(doc, numbering)
+        .filter((i) => i.label)
+        .map((i) => `${i.level}${i.label}`),
+    ).toEqual(["0a.", "11.", "2(a)", "12.", "0b."]);
+  });
+
+  it("rounds a stray odd indent down to a whole level", async () => {
+    const { doc } = await parts(
+      " a. x\n  1. y\n    (a) z\n   (b) w\n" + "  ".repeat(12) + "(1) deep",
+    );
+    const levels = [...doc.matchAll(/<w:ilvl w:val="([^"]+)"\/>/g)].map(
+      (m) => m[1],
+    );
+    expect(levels.slice(0, 5)).toEqual(["0", "1", "2", "2", "8"]);
+  });
+
+  it("indents prose after a nested unindented sub-item as far as that item", async () => {
+    const { doc } = await parts(
+      "a. For public systems:\n1. Display\nThen this",
+    );
+    expect(doc).toContain(
+      '<w:p><w:pPr><w:ind w:left="432"/></w:pPr><w:r><w:t xml:space="preserve">Then this</w:t>',
+    );
+  });
+
+  it("keeps unlabelled lines as paragraphs under their item, with brackets as written", async () => {
+    const { doc } = await parts(STATEMENT);
+    expect(doc).toContain(
+      '<w:p><w:pPr><w:ind w:left="864"/></w:pPr><w:r><w:t xml:space="preserve">Moderate: y</w:t>',
+    );
+    expect(doc).toContain(
+      '<w:p><w:r><w:t xml:space="preserve">Root prose.</w:t>',
+    );
+    expect(doc).toContain(
+      '<w:p><w:r><w:t xml:space="preserve">aa. Not a shape it numbers</w:t>',
+    );
+    const { doc: params } = await parts(
+      "Do it.\na. Review [Low: annually] and report",
+    );
+    expect(params).toContain(">Review [Low: annually] and report</w:t>");
+  });
+
+  it("bullets a discussion's dash lines, one list for each run", async () => {
+    const { doc, numbering } = await parts(
+      "a. One",
+      "Intro.\n- First\n- Second\nBetween.\n- Third",
+    );
+    const bullets = rendered(doc, numbering).filter((i) => !i.label);
+    expect(bullets.map((b) => b.text)).toEqual([
+      "First",
+      "Second",
+      "Third",
+      // The references' own list.
+      "ZT doc",
+    ]);
+    const ids = [
+      ...doc.matchAll(/<w:ilvl w:val="0"\/><w:numId w:val="(\d+)"\/>/g),
+    ].map((m) => Number(m[1]));
+    // The statement's list, two discussion runs, then the references.
+    expect(ids).toEqual([1, 2, 2, 3, 4]);
+    expect(doc).toContain(">Between.</w:t>");
   });
 });

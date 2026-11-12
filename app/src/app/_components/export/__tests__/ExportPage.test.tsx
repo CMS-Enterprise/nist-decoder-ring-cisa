@@ -169,10 +169,24 @@ describe("ExportPage", () => {
         { enabled: boolean },
       ];
       expect(options.enabled).toBe(false);
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: `Clear ${key}` }));
-      });
-      await waitFor(() => expect(lastUrl(spy)?.has(key)).toBe(false));
+      // What the focused element says on arrival is what a screen reader reads first.
+      let readOnArrival = "";
+      const onFocus = (e: FocusEvent) => {
+        readOnArrival = (e.target as HTMLElement).textContent ?? "";
+      };
+      document.addEventListener("focusin", onFocus);
+      try {
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: `Clear ${key}` }));
+        });
+        await waitFor(() => expect(lastUrl(spy)?.has(key)).toBe(false));
+      } finally {
+        document.removeEventListener("focusin", onFocus);
+      }
+      // The button is gone, so focus is on the status line beside the download, which
+      // already reads the cleared selection rather than the refusal.
+      expect(document.activeElement).toHaveAttribute("aria-live", "polite");
+      expect(readOnArrival).not.toMatch(/isn't valid/);
     },
   );
 
@@ -299,6 +313,8 @@ describe("ExportPage", () => {
       fireEvent.click(within(note).getByRole("button"));
     });
     await waitFor(() => expect(lastUrl(spy)?.get("format")).toBeNull());
+    // The note and its button are gone; focus is on the format the reader chose.
+    expect(screen.getByRole("radio", { name: /Spreadsheet/ })).toHaveFocus();
   });
 
   it("says nothing about size for a small DOCX or any XLSX", () => {
@@ -380,6 +396,23 @@ describe("ExportPage", () => {
     expect(saved.download).toBe("catalog-export.xlsx");
     expect(screen.getByText("Download DOCX")).toBeInTheDocument();
     click.mockRestore();
+  });
+
+  it("makes the filters inert while there are picks, not only dimmed", () => {
+    renderPage("?pick=AC-02");
+    const filters = screen
+      .getByRole("checkbox", { name: "Optimal", hidden: true })
+      .closest("[inert]");
+    expect(filters).not.toBeNull();
+  });
+
+  it("leaves the filters live with no picks", () => {
+    renderPage();
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Optimal", hidden: true })
+        .closest("[inert]"),
+    ).toBeNull();
   });
 
   it("picks by id or name, and removes a pick", async () => {

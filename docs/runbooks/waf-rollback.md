@@ -46,6 +46,8 @@ terraform plan -out=waf.tfplan   # review: Web ACL updated in place, or destroye
 terraform apply waf.tfplan
 ```
 
+To watch a rate rule without blocking, set its `action` to `"count"` in `infra/modules/compute/waf.tf`: its hits then show as `CountedRequests`. For `rate-limit-export` and `rate-limit-count` that means no 429 or `Retry-After`; `rate-limit-per-ip` blocks with a plain 403, so for it count mode means no 403.
+
 ## Option 2: emergency disassociate (fastest; out-of-band)
 
 Use this only to stop an active lockout. It removes the Web ACL from the ALB, so the ALB is open with no WAF. Follow with Option 1.

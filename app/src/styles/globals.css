@@ -1,6 +1,153 @@
 @import "tailwindcss";
 
+/* Semantic color tokens. Components set color only through these names (bg-surface,
+   text-ink-muted, border-border-strong, ...), never a raw palette class, so a theme is a
+   set of values for the same names. Light values are USWDS 3.14.0 system colors, copied
+   rather than installed: Standard runs Tailwind with no Sass pipeline. Each value's USWDS
+   name is beside it, and docs/architecture/color-tokens.md has the pair each one was
+   checked against and the ratio. The dark theme, below, redefines the same names. */
 @theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* Text. Only these two carry text on a light surface; gray-cool-50 falls under 4.5:1
+     on any tint. */
+  --color-ink: #1b1b1b; /* gray-90 */
+  --color-ink-muted: #565c65; /* gray-cool-60 */
+  --color-on-accent: #ffffff; /* white: text on a filled accent, state or status */
+
+  /* Surfaces */
+  --color-surface: #ffffff; /* white */
+  --color-surface-canvas: #f7f9fa; /* gray-cool-2 */
+  --color-surface-muted: #edeff0; /* gray-cool-5 */
+  --color-surface-strong: #dfe1e2; /* gray-cool-10 */
+  --color-surface-statement: #faf3d1; /* yellow-5: the control pane */
+  --color-surface-zt: #e8f5ff; /* blue-5v: the Zero Trust pane */
+  --color-surface-family: #c7efe2; /* mint-10: a family's header on the cake */
+  /* A card inside each modal pane. White in light; in dark, a step lighter than its
+     pane and in its hue, so the card reads as raised and the pane keeps its color. */
+  --color-surface-statement-raised: #ffffff; /* white */
+  --color-surface-zt-raised: #ffffff; /* white */
+
+  /* Borders. border is decorative; border-strong edges controls and inputs (3:1). */
+  --color-border: #dfe1e2; /* gray-cool-10 */
+  --color-border-strong: #71767a; /* gray-cool-50 */
+
+  /* Accent: links, primary actions, selection */
+  --color-accent: #005ea2; /* blue-60v */
+  --color-accent-strong: #1a4480; /* blue-warm-70v */
+  --color-accent-muted: #cfe8ff; /* blue-10v */
+  --color-accent-subtle: #e8f5ff; /* blue-5v */
+
+  /* Focus. blue-50v rather than USWDS's blue-40v, which is under 3:1 on the tinted panes;
+     drawn 2px off the control, so it is measured against the surface behind. */
+  --color-focus: #0076d6; /* blue-50v */
+
+  /* Zero Trust mapping: mapped enhancement tabs, covered statement items */
+  --color-zt: #00687d; /* cyan-60v */
+  --color-zt-strong: #0e4f5c; /* cyan-70v */
+  --color-zt-muted: #52daf2; /* cyan-20v, decorative edges only */
+  --color-zt-subtle: #e5faff; /* cyan-5v */
+
+  /* The four Zero Trust states on the cake and its legend. Hue tells them apart, and so
+     does lightness, darker for more coverage (L* 89, 60, 39, 17), so they still separate
+     in grayscale and for color-blind readers at the cake's zoomed-out view, where the
+     glyphs are too small to read. */
+  --color-state-aligned: #005ea2; /* blue-60v, white text */
+  --color-state-aligned-enh: #481441; /* violet-warm-80v, white text */
+  --color-state-enh: #009ec1; /* cyan-40v, ink text */
+  --color-state-none: #dfe1e2; /* gray-cool-10 */
+  --color-state-none-ink: #3d4551; /* gray-cool-70 */
+
+  /* Status */
+  --color-success: #216e1f; /* green-cool-60v */
+  --color-success-subtle: #e3f5e1; /* green-cool-5v */
+  --color-warning: #5c410a; /* gold-70v */
+  --color-warning-subtle: #fef0c8; /* gold-5v */
+  --color-error: #b50909; /* red-60v */
+  --color-error-subtle: #fff3f2; /* red-5v */
+
+  /* A highlighted statement item */
+  --color-highlight: #fff5c2; /* yellow-5v */
+  --color-highlight-edge: #ffbe2e; /* gold-20v, decorative edge only */
+  --color-highlight-ring: #1b1b1b; /* gray-90: the ring that marks the item (3:1) */
+
+  /* Behind a modal, dark in both themes */
+  --color-scrim: #000000; /* black */
+}
+
+/* Themes switch on one attribute, <html data-theme="light" | "dark">, which the script in
+   the root layout sets before first paint from the stored choice or the system setting
+   (theme/theme.ts). A component never names a theme: it uses the tokens, and the dark
+   theme gives them new values. The variant is for exceptions; one chip hover uses it. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  /* Dark values, USWDS 3.14.0 system colors, each checked in
+     docs/architecture/color-tokens.md. Filled colors turn light, so on-accent turns dark;
+     the cake's states still step in lightness, lighter for more coverage (L* 19, 39, 60,
+     81). */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-ink: #edeff0; /* gray-cool-5 */
+    --color-ink-muted: #c6cace; /* gray-cool-20 */
+    --color-on-accent: #1b1b1b; /* gray-90 */
+
+    --color-surface: #2d2e2f; /* gray-cool-80 */
+    --color-surface-canvas: #1c1d1f; /* gray-cool-90 */
+    --color-surface-muted: #3d4551; /* gray-cool-70 */
+    --color-surface-strong: #565c65; /* gray-cool-60, one step past muted */
+    --color-surface-statement: #191714; /* gold-90 */
+    --color-surface-zt: #11181d; /* blue-90 */
+    --color-surface-family: #204e34; /* mint-70 */
+    --color-surface-statement-raised: #322d26; /* gold-80 */
+    --color-surface-zt-raised: #1f303e; /* blue-80 */
+
+    --color-border: #3d4551; /* gray-cool-70 */
+    --color-border-strong: #8d9297; /* gray-cool-40 */
+
+    --color-accent: #58b4ff; /* blue-30v */
+    --color-accent-strong: #a1d3ff; /* blue-20v */
+    --color-accent-muted: #112f4e; /* blue-80v */
+    --color-accent-subtle: #252f3e; /* blue-warm-80 */
+
+    --color-focus: #58b4ff; /* blue-30v */
+
+    --color-zt: #00bde3; /* cyan-30v */
+    --color-zt-strong: #52daf2; /* cyan-20v */
+    --color-zt-muted: #0e4f5c; /* cyan-70v, decorative edges only */
+    --color-zt-subtle: #093b44; /* cyan-80v */
+
+    --color-state-aligned: #4f97d1; /* blue-40, on-accent text */
+    --color-state-aligned-enh: #bbc8f5; /* indigo-cool-20, on-accent text */
+    --color-state-enh: #2a646d; /* cyan-60, ink text */
+    --color-state-none: #2d2e2f; /* gray-cool-80 */
+    --color-state-none-ink: #c6cace; /* gray-cool-20 */
+
+    --color-success: #b4d0b9; /* green-cool-20 */
+    --color-success-subtle: #19311e; /* green-cool-80v */
+    --color-warning: #ffbe2e; /* gold-20v */
+    --color-warning-subtle: #3b2b15; /* gold-80v */
+    --color-error: #ff8d7b; /* red-30v */
+    --color-error-subtle: #5c1111; /* red-80v */
+
+    --color-highlight: #422d19; /* yellow-80v */
+    --color-highlight-edge: #c2850c; /* gold-40v, decorative edge only */
+    --color-highlight-ring: #e5a000; /* gold-30v */
+  }
+}
+
+/* Every focusable element shows the same indicator (2.4.7), in one place rather than one
+   class per component. Layered as base, so a component can still restyle its own. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 }

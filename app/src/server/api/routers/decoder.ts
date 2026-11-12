@@ -13,6 +13,7 @@ import {
   isIdentifierQuery,
   isQueryActive,
   matchesQuery,
+  type FilterQuery,
   normalizeControlId,
   passesFacets,
 } from "~/app/_components/decoder-ring/filterPredicate";
@@ -260,7 +261,6 @@ export interface ControlRow {
   // Which baselines the control itself belongs to, as the catalog spells them.
   // Seeded per control; the UI labels them, so the raw tokens travel unchanged.
   baselineLabels: string[];
-  priority: string | null;
   parts: PartRow[];
   ztMapping: ZTMappingRow | null;
   // NistLink: the catalog's own reference links for the control, seeded by the
@@ -605,7 +605,6 @@ function mapControl(ctrl: ControlRow, guidanceMap: GuidanceMap) {
     // under its own name, so a neutral field here keeps the difference inside this file
     // instead of spreading it through every component that renders a badge.
     baselines: ctrl.baselineLabels ?? [],
-    priority: ctrl.priority ?? null,
     status: hasZT ? ("zero-trust-aligned" as const) : ("compliance" as const),
     // Not `status`, which already says whether the control is Zero Trust aligned.
     catalogStatus:
@@ -712,6 +711,18 @@ interface BridgeFamily {
 }
 
 const unique = <T>(xs: T[]): T[] => Array.from(new Set(xs));
+
+/** A Zero Trust row passes the pillar, maturity and designation facets when it is in every active one. */
+const tuplePasses = (
+  t: { pillar: string; maturity: string; designation?: string | null },
+  query: Pick<FilterQuery, "pillar" | "maturity" | "designation">,
+) =>
+  // A mapping with no affinity rows exports one row naming its pillars joined.
+  (!query.pillar.length ||
+    t.pillar.split(", ").some((p) => query.pillar.includes(p))) &&
+  (!query.maturity.length || query.maturity.includes(t.maturity)) &&
+  (!query.designation.length ||
+    (!!t.designation && query.designation.includes(t.designation)));
 
 /**
  * Every live base control with its filter dimensions, in family then catalog order. The
@@ -1450,13 +1461,21 @@ export const exportRouter = createTRPCRouter({
           },
         });
 
+        // A filtered export keeps only the Zero Trust rows the pillar, maturity and designation facets select.
+        const tupleFilter =
+          input.pick.length === 0 &&
+          (input.pillar.length > 0 ||
+            input.maturity.length > 0 ||
+            input.designation.length > 0);
+
         return {
           catalog: activeVersion.displayLabel,
           versionId: activeVersion.id,
           datasets,
           fields,
-          controls: kept.map((row) =>
-            toExportControl(
+          ...(tupleFilter ? { zeroTrustFiltered: true } : {}),
+          controls: kept.map((row) => {
+            const control = toExportControl(
               mapControl(row, guidanceMap),
               row.parentControl
                 ? {
@@ -1469,8 +1488,17 @@ export const exportRouter = createTRPCRouter({
                 : null,
               datasets,
               fields,
-            ),
-          ),
+            );
+            // A control matching the facets only on different rows exports none; the DOCX says so.
+            return tupleFilter && control.zeroTrust
+              ? {
+                  ...control,
+                  zeroTrust: control.zeroTrust.filter((t) =>
+                    tuplePasses(t, input),
+                  ),
+                }
+              : control;
+          }),
         };
       }),
   }),

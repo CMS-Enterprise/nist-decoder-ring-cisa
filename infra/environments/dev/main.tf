@@ -63,6 +63,39 @@ module "database" {
   tags = local.tags
 }
 
+# --- The database the app reads ---
+#
+# The app reads the database module's instance unless db_restored_instance_identifier
+# names an instance that scripts/db-recover.sh restored outside Terraform. Terraform
+# only reads that instance, and the database module goes on managing the original,
+# which a recovery never changes. docs/runbooks/prod-db-recovery.md covers the
+# cutover and what to do with the two instances afterwards.
+data "aws_db_instance" "restored" {
+  count                  = var.db_restored_instance_identifier == null ? 0 : 1
+  db_instance_identifier = var.db_restored_instance_identifier
+
+  lifecycle {
+    postcondition {
+      condition     = try(self.master_user_secret[0].secret_status, "") == "active"
+      error_message = "The restored instance has no active RDS-managed master secret for the app to read. The restore phase of scripts/db-recover.sh establishes one."
+    }
+  }
+}
+
+locals {
+  app_db = var.db_restored_instance_identifier == null ? {
+    address    = module.database.db_address
+    port       = module.database.db_port
+    name       = module.database.db_name
+    secret_arn = module.database.master_user_secret_arn
+    } : {
+    address    = data.aws_db_instance.restored[0].address
+    port       = data.aws_db_instance.restored[0].port
+    name       = data.aws_db_instance.restored[0].db_name
+    secret_arn = data.aws_db_instance.restored[0].master_user_secret[0].secret_arn
+  }
+}
+
 # --- Secrets ---
 
 module "secrets" {
@@ -93,14 +126,19 @@ module "compute" {
   alb_security_group_id = module.security.alb_security_group_id
   ecs_security_group_id = module.security.ecs_security_group_id
 
-  master_user_secret_arn = module.database.master_user_secret_arn
+  master_user_secret_arn = local.app_db.secret_arn
   auth_secret_arn        = module.secrets.auth_secret_arn
   kms_key_arn            = module.kms.secrets_kms_key_arn
 
-  # Discrete DB connection pieces the entrypoint consumes.
-  db_endpoint_host = module.database.db_address
-  db_port          = module.database.db_port
-  db_name          = module.database.db_name
+  # The rotation schedule stays on the managed instance's secret while the app
+  # reads a restored one (see rotation_redeploy.tf in the compute module).
+  rotation_secret_arn = module.database.master_user_secret_arn
+
+  # Discrete DB connection pieces the entrypoint consumes. The migrate and seed
+  # task definitions take the same ones.
+  db_endpoint_host = local.app_db.address
+  db_port          = local.app_db.port
+  db_name          = local.app_db.name
 
   # Rotation trigger passed through to the ECS service's
   # `triggers` map. Bumping this in tfvars forces a new deployment so

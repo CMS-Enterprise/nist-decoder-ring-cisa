@@ -168,23 +168,23 @@ export default function FilterBar({
             >
               <summary
                 title={facet.hint}
-                className="flex w-full cursor-pointer list-none items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-slate-300"
+                className="border-border-strong bg-surface text-ink hover:bg-surface-muted flex w-full cursor-pointer list-none items-center justify-between gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
               >
                 <span className="flex items-center gap-1.5">
                   {facet.label}
                   {selected.length > 0 && (
-                    <span className="rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">
+                    <span className="bg-accent text-on-accent rounded-full px-1.5 text-xs font-bold">
                       {selected.length}
                     </span>
                   )}
                 </span>
-                <span className="text-xs text-slate-400 transition-transform group-open:rotate-180">
+                <span className="text-ink-muted text-xs transition-transform group-open:rotate-180">
                   ▾
                 </span>
               </summary>
-              <div className="absolute inset-x-0 z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+              <div className="border-border bg-surface absolute inset-x-0 z-20 mt-1 max-h-72 overflow-auto rounded-lg border p-1 shadow-lg">
                 {facet.values.length === 0 ? (
-                  <p className="px-2 py-1.5 text-xs text-slate-400 italic">
+                  <p className="text-ink-muted px-2 py-1.5 text-xs italic">
                     No options
                   </p>
                 ) : (
@@ -194,13 +194,13 @@ export default function FilterBar({
                     // and unlayered rules beat layered utilities unless they are important.
                     <label
                       key={value}
-                      className="my-0! flex! cursor-pointer items-start gap-2 rounded px-2 py-1 text-xs leading-4 text-slate-700 hover:bg-slate-50"
+                      className="text-ink hover:bg-surface-canvas my-0! flex! cursor-pointer items-start gap-2 rounded px-2 py-1 text-xs leading-4"
                     >
                       <input
                         type="checkbox"
                         checked={selected.includes(value)}
                         onChange={() => toggleFacet(facet.key, value)}
-                        className="h-4 w-4 shrink-0 rounded border-slate-300"
+                        className="border-border-strong h-4 w-4 shrink-0 rounded"
                       />
                       {/* Wraps beside the checkbox, never under it. */}
                       <span className="min-w-0">
@@ -221,8 +221,8 @@ export default function FilterBar({
             aria-pressed={reflow}
             className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
               reflow
-                ? "border-blue-600 bg-blue-600 text-white"
-                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                ? "border-accent bg-accent text-on-accent"
+                : "border-border-strong bg-surface text-ink hover:bg-surface-muted"
             }`}
             title="Collapse the diagram down to just the matching controls"
           >
@@ -239,13 +239,13 @@ export default function FilterBar({
               key={`${key}:${value}`}
               type="button"
               onClick={() => toggleFacet(key, value)}
-              className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+              className="bg-surface-muted text-ink hover:bg-surface-strong flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
               title={`Remove ${facetLabelFor(key)}: ${labelFor(key, value)}`}
             >
               {/* The facet's name leads, so values from different facets never read as one list. */}
-              <span className="text-slate-500">{facetLabelFor(key)}:</span>{" "}
+              <span className="text-ink-muted">{facetLabelFor(key)}:</span>{" "}
               {labelFor(key, value)}
-              <span aria-hidden className="text-slate-400">
+              <span aria-hidden className="text-ink-muted">
                 ×
               </span>
             </button>
@@ -254,11 +254,11 @@ export default function FilterBar({
             <button
               type="button"
               onClick={() => void setQuery({ q: "" })}
-              className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+              className="bg-surface-muted text-ink hover:bg-surface-strong flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
               title="Clear the search term"
             >
               &ldquo;{query.q}&rdquo;
-              <span aria-hidden className="text-slate-400">
+              <span aria-hidden className="text-ink-muted">
                 ×
               </span>
             </button>
@@ -266,7 +266,7 @@ export default function FilterBar({
           <button
             type="button"
             onClick={onClear}
-            className="ml-1 text-xs font-medium text-blue-600 hover:underline"
+            className="text-accent ml-1 text-xs font-medium hover:underline"
           >
             Clear all
           </button>

@@ -92,6 +92,9 @@ def test_main_exit_codes(tmp_path, monkeypatch):
     path.write_text("FROM scratch\n")
     assert check_rds_bundle.main(["x", str(path)]) == 2
 
+    path.write_bytes(b"FROM scratch\n# \xff\n")
+    assert check_rds_bundle.main(["x", str(path)]) == 2
+
 
 class _Response:
     def __init__(self, body):

@@ -30,7 +30,7 @@ const CONTENT_TYPE = {
 } as const;
 
 // Bump when a writer's output changes, so a browser revalidating an old file is sent the new one.
-const WRITER_VERSION = "2";
+const WRITER_VERSION = "4";
 
 const invalid = (error: string) =>
   NextResponse.json({ error }, { status: 400 });

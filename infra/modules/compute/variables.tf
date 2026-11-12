@@ -64,6 +64,12 @@ variable "master_user_secret_arn" {
   type        = string
 }
 
+variable "rotation_secret_arn" {
+  description = "ARN of the RDS-managed secret whose rotation schedule this module pins (rotation_redeploy.tf): the master secret of the instance Terraform manages. Null pins master_user_secret_arn's. The two differ only while the app reads an instance restored outside Terraform, so that pointing the app at it never cancels the managed instance's rotation."
+  type        = string
+  default     = null
+}
+
 variable "auth_secret_arn" {
   description = "ARN of the AUTH_SECRET Secrets Manager secret"
   type        = string

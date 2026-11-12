@@ -56,6 +56,9 @@ export interface ProductConfig {
   };
   /** Chip on a reference an enhancement cites itself, above those it inherits from its base. */
   enhancementSpecificChip: string;
+  /** Copy's heading for related controls, and the marker on one the catalog does not select. */
+  relatedHeading: string;
+  relatedOutsideMarker: string;
   /** Label of the control's frequency row. */
   frequencyLabel: string;
   /** Chip stating that the catalog leaves the frequency to the organization. */
@@ -74,8 +77,6 @@ export interface ProductConfig {
   baselineFacetNone: string;
   /** The baseline facet button's tooltip: how a control matches a baseline. */
   baselineFacetHint: string;
-  /** The priority row's label. */
-  priorityLabel: string;
   /** The baselines row's explainer: what a solid and a light chip mean. */
   baselinesInfoLabel: string;
   baselinesInfoTitle: string;
@@ -139,6 +140,8 @@ export const STANDARD: ProductConfig = {
       "NIST cites most sources at the base control. On an enhancement, the references it cites itself come first, marked enhancement-specific, followed by its base control's.",
   },
   enhancementSpecificChip: "Enhancement-specific",
+  relatedHeading: "Related Controls",
+  relatedOutsideMarker: "not in this catalog",
   frequencyLabel: "Frequency",
   frequencyOrgDefinedChip: "Organization-defined",
   frequencyNoneChip: "No frequency parameter",
@@ -150,7 +153,6 @@ export const STANDARD: ProductConfig = {
   baselineFacetNone: "In no baseline",
   baselineFacetHint:
     "A control matches when it or any of its enhancements is in the baseline.",
-  priorityLabel: "Priority",
   baselinesInfoLabel: "About these baselines",
   baselinesInfoTitle: "About these baselines",
   baselinesInfoBody: {

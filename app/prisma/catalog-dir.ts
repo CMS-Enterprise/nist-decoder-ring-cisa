@@ -15,6 +15,11 @@
 
 import { readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** The committed seed, one directory per catalog. Resolved from this file rather
+ *  than the working directory, so a loader finds it wherever it is started. */
+export const SEED_ROOT = fileURLToPath(new URL("seed-sql", import.meta.url));
 
 /** Catalog directories present under a seed root, sorted. */
 export function availableCatalogs(seedRoot: string): string[] {
@@ -53,8 +58,8 @@ export function requestedCatalog(
 /**
  * Resolve a catalog name to its directory, or throw naming what is actually
  * available. A name containing a path separator or `..` is rejected before it
- * reaches the filesystem: this value is interpolated into a `docker cp` and a
- * `psql -f` command line, and it became input the moment the selector existed.
+ * reaches the filesystem: this value becomes part of the path the loader reads
+ * SQL from, and it became input the moment the selector existed.
  */
 export function resolveCatalogDir(
   seedRoot: string,

@@ -8,7 +8,7 @@
 # - SLSA Level 3 provenance
 # - Apache 2.0 license (free for open source)
 # Reference: https://docs.docker.com/dhi/migration/examples/node/
-FROM dhi.io/node:24-alpine3.22-dev@sha256:32f8fcc3d042c3d017bc1e4b9a6089ddad5f85a25236468d30242d95eb1d1186 AS base
+FROM dhi.io/node:24-alpine3.22-dev@sha256:6281bb928b67a9d84f867250be139402b5ac9c095bec10c36d454750fcd21133 AS base
 
 # Install libc6-compat for Prisma's Rust query engine binaries.
 # schema.prisma pins explicit linux-musl-openssl-3.0.x and
@@ -135,7 +135,7 @@ CMD ["yarn", "dev"]
 # Runner stage - production runtime
 # ============================================
 # Using minimal DHI runtime image (no dev tools, NO SHELL for security)
-FROM dhi.io/node:24-alpine3.22@sha256:86e13921692fa7bac4c7da41a2832aa9c90c082913d33f88dd3b4ffc0b8cb13d AS runner
+FROM dhi.io/node:24-alpine3.22@sha256:4a3382a61de77786be9d6a20a2416327d1fe326d6e5084daa225186441574083 AS runner
 
 # Note: Cannot RUN commands here - no shell in hardened image!
 # DHI minimal image includes necessary runtime libraries for Node.js and Prisma.

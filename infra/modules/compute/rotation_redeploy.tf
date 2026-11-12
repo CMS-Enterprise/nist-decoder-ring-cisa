@@ -38,9 +38,15 @@ locals {
 # `aws secretsmanager rotate-secret --rotation-rules ...` (documented in the
 # runbook). Part B alone still prevents the stale-credential outage, whenever
 # rotation fires.
+#
+# The schedule stays on the managed instance's secret even while the app reads a
+# restored instance (var.rotation_secret_arn). Changing secret_id replaces this
+# resource, and replacing it cancels rotation on the old secret, which would
+# change the instance a recovery must leave alone. scripts/db-recover.sh copies
+# the schedule to the restored instance's secret instead.
 resource "aws_secretsmanager_secret_rotation" "db" {
   count              = var.enable_rotation_auto_redeploy ? 1 : 0
-  secret_id          = var.master_user_secret_arn
+  secret_id          = coalesce(var.rotation_secret_arn, var.master_user_secret_arn)
   rotate_immediately = false
 
   rotation_rules {

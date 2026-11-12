@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   createSerializer,
   parseAsString,
@@ -26,6 +26,7 @@ import { api } from "~/trpc/react";
 import { RateLimited } from "~/trpc/rate-limited";
 import ControlPicker from "./ControlPicker";
 import { STATUS_MESSAGE, useExportDownload } from "./useExportDownload";
+import ThemeToggle from "~/app/_components/theme/ThemeToggle";
 
 const PAGE_PARSERS = {
   ...EXPORT_PARSERS,
@@ -50,6 +51,7 @@ const FIELD_LABELS: Record<ExportField, string> = {
   frequency: "Frequency",
   priority: "Priority",
   lineage: "Withdrawn status and lineage",
+  related: "Related controls",
 };
 const ENHANCEMENT_LABELS: Record<(typeof EXPORT_ENHANCEMENTS)[number], string> =
   {
@@ -95,12 +97,12 @@ function Section({
   return (
     <section
       aria-labelledby={id}
-      className="rounded-xl border border-slate-200 bg-white p-4"
+      className="border-border bg-surface rounded-xl border p-4"
     >
-      <h2 id={id} className="m-0! text-base! font-semibold! text-slate-800">
+      <h2 id={id} className="text-ink m-0! text-base! font-semibold!">
         {title}
       </h2>
-      {hint && <p className="mt-1 mb-0! text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="text-ink-muted mt-1 mb-0! text-xs">{hint}</p>}
       <div role={role} aria-labelledby={role ? id : undefined} className="mt-3">
         {children}
       </div>
@@ -109,12 +111,15 @@ function Section({
 }
 
 // flex! and my-0!: the design system's unlayered label rule beats Tailwind's layered utilities.
-const OPTION =
-  "my-0! flex! cursor-pointer items-center gap-2 text-sm text-slate-700";
-const CONTROL =
-  "h-4 w-4 shrink-0 focus-visible:ring-2 focus-visible:ring-blue-500";
+const OPTION = "my-0! flex! cursor-pointer items-center gap-2 text-sm text-ink";
+const CONTROL = "h-4 w-4 shrink-0";
 const DOWNLOAD =
-  "rounded-lg px-4 py-2 text-sm font-semibold text-white! no-underline! focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none";
+  "rounded-lg border px-4 py-2 text-sm font-semibold no-underline!";
+// Off reads as off in grayscale too: a pale fill with a gray edge, far from accent's lightness.
+const DOWNLOAD_OFF =
+  "border-border-strong bg-surface-muted text-ink-muted! cursor-not-allowed";
+const DOWNLOAD_ON =
+  "border-transparent bg-accent text-on-accent! hover:bg-accent-strong";
 
 /**
  * Build an export and download it. The page's URL is the export's own selection
@@ -163,6 +168,19 @@ export default function ExportPage() {
   const count = counted?.count;
 
   const href = toDownload("/api/export", state);
+  // "Clear" and "Use the spreadsheet" each remove themselves when pressed, which would drop
+  // focus to the page. The spreadsheet choice sends it to its radio. A clear sends it to the
+  // status line beside the download, once the cleared selection has rendered, so what is
+  // read on arrival is the new state rather than the refused link's message.
+  const xlsxRadio = useRef<HTMLInputElement>(null);
+  const statusLine = useRef<HTMLParagraphElement>(null);
+  const focusStatusOnceCleared = useRef(false);
+  useLayoutEffect(() => {
+    if (focusStatusOnceCleared.current && invalid.length === 0) {
+      focusStatusOnceCleared.current = false;
+      statusLine.current?.focus();
+    }
+  });
   const picked = selection.pick.length > 0;
   // Only what this app offers, so a toggle never writes an option the page does not show.
   const data = selection.data.filter((d) => LINE_DATASETS.includes(d));
@@ -187,18 +205,21 @@ export default function ExportPage() {
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
+    <div className="bg-surface-canvas text-ink min-h-screen font-sans">
+      <header className="border-border bg-surface border-b px-6 py-4 shadow-sm">
         <div className="mx-auto flex max-w-4xl flex-wrap items-baseline justify-between gap-2">
-          <h1 className="m-0! text-2xl! font-black! tracking-tight text-slate-800">
+          <h1 className="text-ink m-0! text-2xl! font-black! tracking-tight">
             Export controls
           </h1>
-          <Link
-            href={toDiagram("/", selection)}
-            className="text-sm font-medium text-blue-600! hover:underline"
-          >
-            Back to the decoder ring
-          </Link>
+          <div className="flex flex-wrap items-center gap-4">
+            <ThemeToggle />
+            <Link
+              href={toDiagram("/", selection)}
+              className="text-accent! text-sm font-medium hover:underline"
+            >
+              Back to the decoder ring
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -208,10 +229,14 @@ export default function ExportPage() {
           hint={
             picked
               ? "Picks are exported as they are; the filters below do not apply while there are picks."
-              : "Filter the catalog as the main view does. With no filter, every current control is exported; pick a withdrawn control to export it."
+              : "Filter the catalog as the main view does. With no filter, every current control is exported; pick a withdrawn control to export it. A pillar, maturity or designation filter also limits each control's Zero Trust rows to the ones that match all of those filters, so a control can be left with none."
           }
         >
-          <div className={`flex flex-col gap-2 ${picked ? "opacity-50" : ""}`}>
+          {/* Inert, not only dimmed: a filter that cannot apply takes no clicks or focus. */}
+          <div
+            inert={picked}
+            className={`flex flex-col gap-2 ${picked ? "opacity-50" : ""}`}
+          >
             <SearchTypeahead />
             {bridge && (
               <FilterBar
@@ -220,7 +245,7 @@ export default function ExportPage() {
               />
             )}
           </div>
-          <div className="mt-4 border-t border-slate-100 pt-4">
+          <div className="border-border mt-4 border-t pt-4">
             <ControlPicker
               picks={selection.pick}
               onChange={(pick) => void setState({ pick })}
@@ -258,7 +283,7 @@ export default function ExportPage() {
             >
               <p
                 id={`${includeId}-content`}
-                className="m-0! text-xs font-semibold tracking-wide text-slate-500 uppercase"
+                className="text-ink-muted m-0! text-xs font-semibold tracking-wide uppercase"
               >
                 Content
               </p>
@@ -281,7 +306,7 @@ export default function ExportPage() {
             >
               <p
                 id={`${includeId}-details`}
-                className="m-0! text-xs font-semibold tracking-wide text-slate-500 uppercase"
+                className="text-ink-muted m-0! text-xs font-semibold tracking-wide uppercase"
               >
                 Details
               </p>
@@ -301,7 +326,7 @@ export default function ExportPage() {
             </div>
           </div>
           {empty && (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="text-ink-muted mt-3 text-xs">
               With nothing ticked, the export lists each control&rsquo;s number,
               name and family.
             </p>
@@ -313,6 +338,7 @@ export default function ExportPage() {
             <label className={OPTION}>
               <input
                 type="radio"
+                ref={xlsxRadio}
                 name="format"
                 checked={format === "xlsx"}
                 onChange={() => void setState({ format: "xlsx" })}
@@ -336,14 +362,17 @@ export default function ExportPage() {
           {format === "docx" && count !== undefined && count > LARGE_DOCX && (
             <p
               role="note"
-              className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+              className="border-highlight-edge bg-warning-subtle text-warning mt-3 rounded-lg border px-3 py-2 text-sm"
             >
               {count} controls make a document of roughly {docxPages(count)}{" "}
               pages. The spreadsheet is easier to filter and search at this
               size.{" "}
               <button
                 type="button"
-                onClick={() => void setState({ format: "xlsx" })}
+                onClick={() => {
+                  xlsxRadio.current?.focus();
+                  void setState({ format: "xlsx" });
+                }}
                 className="font-medium underline"
               >
                 Use the spreadsheet
@@ -357,7 +386,7 @@ export default function ExportPage() {
             <button
               type="button"
               disabled
-              className={`${DOWNLOAD} cursor-not-allowed bg-slate-400`}
+              className={`${DOWNLOAD} ${DOWNLOAD_OFF}`}
             >
               Download {format.toUpperCase()}
             </button>
@@ -371,9 +400,7 @@ export default function ExportPage() {
                   void download(href, `export.${format}`);
               }}
               className={`${DOWNLOAD} ${
-                status.kind === "pending"
-                  ? "cursor-not-allowed bg-slate-400"
-                  : "bg-blue-600 hover:bg-blue-700"
+                status.kind === "pending" ? DOWNLOAD_OFF : DOWNLOAD_ON
               }`}
             >
               {status.kind === "pending"
@@ -381,7 +408,12 @@ export default function ExportPage() {
                 : `Download ${format.toUpperCase()}`}
             </a>
           )}
-          <p aria-live="polite" className="text-sm text-slate-600">
+          <p
+            ref={statusLine}
+            tabIndex={-1}
+            aria-live="polite"
+            className="text-ink-muted text-sm"
+          >
             {blocked ??
               (countError
                 ? "The control count is unavailable. Try again in a few minutes."
@@ -392,10 +424,13 @@ export default function ExportPage() {
           {invalid.length > 0 && (
             <button
               type="button"
-              onClick={() =>
-                void setState(Object.fromEntries(invalid.map((k) => [k, null])))
-              }
-              className="text-sm font-medium text-blue-600 hover:underline"
+              onClick={() => {
+                focusStatusOnceCleared.current = true;
+                void setState(
+                  Object.fromEntries(invalid.map((k) => [k, null])),
+                );
+              }}
+              className="text-accent text-sm font-medium hover:underline"
             >
               Clear {invalid.join(", ")}
             </button>
@@ -403,17 +438,17 @@ export default function ExportPage() {
         </div>
         <div aria-live="assertive" className="text-sm">
           {status.kind === "pending" && (
-            <p className="text-slate-600">{STATUS_MESSAGE.pending}</p>
+            <p className="text-ink-muted">{STATUS_MESSAGE.pending}</p>
           )}
           {(status.kind === "busy" || status.kind === "limited") && (
-            <p className="text-amber-800">{STATUS_MESSAGE[status.kind]}</p>
+            <p className="text-warning">{STATUS_MESSAGE[status.kind]}</p>
           )}
           {status.kind === "failed" && (
-            <p className="text-red-700">{status.message}</p>
+            <p className="text-error">{status.message}</p>
           )}
         </div>
         {!isQueryActive(selection) && !picked && (
-          <p className="text-xs text-slate-500">
+          <p className="text-ink-muted text-xs">
             No filter or pick is set, so this is every current control.
           </p>
         )}

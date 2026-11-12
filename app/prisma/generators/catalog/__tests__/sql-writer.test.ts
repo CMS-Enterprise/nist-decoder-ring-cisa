@@ -122,6 +122,15 @@ describe("writeCleanupSql", () => {
     writeCleanupSql(OUT, NOTE);
     expect(writtenSql()).toContain("SET client_min_messages = warning;");
   });
+
+  it("truncates the hand-seeded FIPS tables, which no cascade reaches", () => {
+    // FipsImpactLevel references nothing, so only a TRUNCATE of its own clears it;
+    // without one, a reseed of a populated database stops on its primary key.
+    writeCleanupSql(OUT, NOTE);
+    const sql = writtenSql();
+    expect(sql).toContain('TRUNCATE TABLE "FipsImpactLevel" CASCADE;');
+    expect(sql).toContain('TRUNCATE TABLE "Fips200Requirement" CASCADE;');
+  });
 });
 
 describe("writeCatalogVersionSql", () => {
@@ -187,12 +196,17 @@ describe("writeControlsSql", () => {
   });
 
   it("leaves the columns the stock catalog does not state as NULL", () => {
-    // reviewFrequency, assessmentFrequency, priority and referencePolicy are a
-    // tailoring authority's to fill, and an invented value would be a claim.
+    // reviewFrequency, assessmentFrequency and referencePolicy are a tailoring
+    // authority's to fill, and an invented value would be a claim.
     writeControlsSql(OUT, [makeControl()], scheme, NOTE);
     const sql = writtenSql();
     expect(sql).toContain("reviewFrequency");
     expect(sql).toContain("NULL, NULL,");
+  });
+
+  it("carries no priority column, since the catalog assigns none", () => {
+    writeControlsSql(OUT, [makeControl()], scheme, NOTE);
+    expect(writtenSql()).not.toContain('"priority"');
   });
 
   it("stamps the provenance line into the file", () => {

@@ -1,10 +1,12 @@
 import { strToU8, zipSync } from "fflate";
 
+import { product } from "~/config/product";
 import { NO_METHOD } from "./copy-text";
 import {
   cisaLabels,
   frequencyLabel,
   NO_FREQUENCY,
+  NO_MATCHING_ROW,
   NO_PRIORITY,
   type ExportControl,
   type ExportRecord,
@@ -46,20 +48,99 @@ interface ParagraphStyle {
   style?: string;
   indent?: number;
   pageBreakBefore?: boolean;
-  bullet?: boolean;
+  list?: { numId: number; level: number };
 }
 
 function paragraph(content: string, p: ParagraphStyle = {}): string {
   const props = [
     p.style ? `<w:pStyle w:val="${p.style}"/>` : "",
     p.pageBreakBefore ? "<w:pageBreakBefore/>" : "",
-    // numId 1 is the bullet list numbering.xml defines; it carries its own indent.
-    p.bullet
-      ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>'
+    // A list paragraph takes its indent from its level in numbering.xml.
+    p.list
+      ? `<w:numPr><w:ilvl w:val="${p.list.level}"/><w:numId w:val="${p.list.numId}"/></w:numPr>`
       : "",
     p.indent ? `<w:ind w:left="${p.indent}"/>` : "",
   ].join("");
   return `<w:p>${props ? `<w:pPr>${props}</w:pPr>` : ""}${content}</w:p>`;
+}
+
+// A statement item's label in the shapes both catalogs write: a., 1., (a) and (1).
+const ITEM_LABEL = /^(?:([a-z]|\d{1,2})\.|\(([a-z]|\d{1,2})\))(?:\s+|$)/;
+
+type LabelStyle = "letter." | "number." | "(letter)" | "(number)";
+const LABEL_STYLES: LabelStyle[] = [
+  "letter.",
+  "number.",
+  "(letter)",
+  "(number)",
+];
+
+function parseLabel(line: string) {
+  const m = ITEM_LABEL.exec(line);
+  if (!m) return null;
+  const mark = m[1] ?? m[2]!;
+  const letter = /[a-z]/.test(mark);
+  const style: LabelStyle = m[1]
+    ? letter
+      ? "letter."
+      : "number."
+    : letter
+      ? "(letter)"
+      : "(number)";
+  const ordinal = letter ? mark.charCodeAt(0) - 96 : Number(mark);
+  return { style, ordinal, text: line.slice(m[0].length) };
+}
+
+// One level's indent: its number hangs where its parent item's text starts.
+const LIST_INDENT = 432;
+// Word's deepest list level.
+const MAX_LEVEL = 8;
+
+const lvl = (i: number, fmt: string, text: string, ind: string) =>
+  `<w:lvl w:ilvl="${i}"><w:start w:val="1"/><w:numFmt w:val="${fmt}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr>${ind}</w:pPr></w:lvl>`;
+
+// The bullet definition, then one per label style; only the lists using them vary.
+const ABSTRACT_NUMS =
+  `<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/>${lvl(0, "bullet", "\u2022", '<w:ind w:left="720" w:hanging="360"/>')}</w:abstractNum>` +
+  LABEL_STYLES.map((style, s) => {
+    const fmt = style.includes("letter") ? "lowerLetter" : "decimal";
+    const levels = Array.from({ length: MAX_LEVEL + 1 }, (_, i) =>
+      lvl(
+        i,
+        fmt,
+        style.startsWith("(") ? `(%${i + 1})` : `%${i + 1}.`,
+        `<w:ind w:left="${LIST_INDENT * (i + 1)}" w:hanging="${LIST_INDENT}"/>`,
+      ),
+    ).join("");
+    return `<w:abstractNum w:abstractNumId="${s + 1}"><w:multiLevelType w:val="multilevel"/>${levels}</w:abstractNum>`;
+  }).join("");
+
+/**
+ * The document's lists. Each list gets its own w:num, so it starts afresh at the value
+ * the catalog gives its first item rather than continuing an earlier list of its style.
+ */
+class Numbering {
+  private nums: string[] = [];
+  private add(abstractId: number, start?: { level: number; at: number }) {
+    this.nums.push(
+      `<w:num w:numId="${this.nums.length + 1}"><w:abstractNumId w:val="${abstractId}"/>${
+        start
+          ? `<w:lvlOverride w:ilvl="${start.level}"><w:startOverride w:val="${start.at}"/></w:lvlOverride>`
+          : ""
+      }</w:num>`,
+    );
+    return this.nums.length;
+  }
+  bullets(): number {
+    return this.add(0);
+  }
+  items(style: LabelStyle, level: number, at: number): number {
+    return this.add(LABEL_STYLES.indexOf(style) + 1, { level, at });
+  }
+  xml(): string {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${ABSTRACT_NUMS}${this.nums.join("")}</w:numbering>`;
+  }
 }
 
 /** Collects the document's external links as relationships, one per distinct URL. */
@@ -92,14 +173,80 @@ const heading = (
   p: Omit<ParagraphStyle, "style"> = {},
 ) => paragraph(run(text), { ...p, style: `Heading${level}` });
 
-// Composed statements indent sub-items with two spaces a level; Word gets a real indent.
-const textBlock = (text: string) =>
-  text.split("\n").map((line) => {
-    const depth = (line.length - line.trimStart().length) / 2;
-    return paragraph(run(line.trimStart()), {
-      indent: depth > 0 ? depth * 360 : undefined,
+// Composed text indents sub-lines with two spaces a level; a stray odd space rounds down.
+const depthOf = (line: string) =>
+  Math.floor((line.length - line.trimStart().length) / 2);
+
+// Word gets a real indent.
+const textLine = (line: string) => {
+  const depth = depthOf(line);
+  return paragraph(run(line.trimStart()), {
+    indent: depth > 0 ? depth * 360 : undefined,
+  });
+};
+
+const textBlock = (text: string) => text.split("\n").map(textLine);
+
+/**
+ * A composed statement, its labelled items as nested lists that Word numbers. Each list
+ * starts at its first item's label, and a label out of sequence starts a new list there,
+ * so every number Word draws is the catalog's own label. A line without a label (the
+ * root prose, a parameter's values) stays a paragraph under the item it belongs to.
+ *
+ * Some catalog prose carries its own sub-items on unindented lines ("…systems:\n1. …"),
+ * so a label whose style differs from the list open at its indent nests below it, or
+ * rejoins the deeper open list of its style. A line without a label after such an item
+ * nests as far as that item did.
+ */
+function statementBlock(text: string, numbering: Numbering): string[] {
+  const open: { style: LabelStyle; numId: number; next: number }[] = [];
+  let shift = 0;
+  return text.split("\n").map((line) => {
+    const indent = Math.min(depthOf(line), MAX_LEVEL);
+    const item = parseLabel(line.trimStart());
+    if (!item) {
+      const level = indent + shift;
+      return paragraph(run(line.trimStart()), {
+        indent: level > 0 ? level * LIST_INDENT : undefined,
+      });
+    }
+    let depth = indent;
+    while (
+      depth < MAX_LEVEL &&
+      open[depth] &&
+      open[depth]?.style !== item.style
+    )
+      depth++;
+    shift = depth - indent;
+    open.length = Math.min(open.length, depth + 1);
+    let list = open[depth];
+    if (list?.style !== item.style || list.next !== item.ordinal) {
+      list = {
+        style: item.style,
+        numId: numbering.items(item.style, depth, item.ordinal),
+        next: item.ordinal,
+      };
+      open[depth] = list;
+    }
+    list.next++;
+    return paragraph(run(item.text), {
+      list: { numId: list.numId, level: depth },
     });
   });
+}
+
+// A discussion's "- " lines are bullet lists, one for each run of them.
+function discussionBlock(text: string, numbering: Numbering): string[] {
+  let numId: number | null = null;
+  return text.split("\n").map((line) => {
+    if (!line.startsWith("- ")) {
+      numId = null;
+      return textLine(line);
+    }
+    numId ??= numbering.bullets();
+    return paragraph(run(line.slice(2)), { list: { numId, level: 0 } });
+  });
+}
 
 const labelled = (label: string, text: string) =>
   paragraph(run(`${label}: `, { bold: true }) + (text ? run(text) : ""));
@@ -107,8 +254,11 @@ const labelled = (label: string, text: string) =>
 function controlBlock(
   c: ExportControl,
   links: Links,
+  numbering: Numbering,
   n: number,
   nested: boolean,
+  inDocument: ReadonlySet<string>,
+  zeroTrustFiltered: boolean,
 ): string[] {
   const name = bookmarkFor(c.id);
   // An enhancement nests under its base only when the base is in the document, and each
@@ -132,9 +282,12 @@ function controlBlock(
     );
   }
   if (c.statement) {
-    out.push(part("Statement"), ...textBlock(c.statement.text));
+    out.push(part("Statement"), ...statementBlock(c.statement.text, numbering));
     if (c.statement.discussion) {
-      out.push(part("Discussion"), ...textBlock(c.statement.discussion));
+      out.push(
+        part("Discussion"),
+        ...discussionBlock(c.statement.discussion, numbering),
+      );
     }
   }
   if (
@@ -159,9 +312,12 @@ function controlBlock(
         ...textBlock(t.guidance),
       );
     }
+  } else if (zeroTrustFiltered && c.zeroTrust) {
+    out.push(part("Zero Trust"), paragraph(run(NO_MATCHING_ROW)));
   }
   if (c.references?.length) {
     out.push(part("References"));
+    const numId = numbering.bullets();
     for (const r of c.references) {
       out.push(
         paragraph(
@@ -170,16 +326,32 @@ function controlBlock(
             (r.scope === "base" && c.baseId
               ? run(` (from ${c.baseId})`, { italic: true })
               : ""),
-          { bullet: true },
+          { list: { numId, level: 0 } },
+        ),
+      );
+    }
+  }
+  if (c.related?.length) {
+    out.push(part("Related controls"));
+    const numId = numbering.bullets();
+    for (const r of c.related) {
+      const text =
+        r.name === null
+          ? `${r.id} (${product.relatedOutsideMarker})`
+          : `${r.id} - ${r.name}`;
+      // A control in this document links to its heading; any other is text.
+      out.push(
+        paragraph(
+          inDocument.has(r.id)
+            ? `<w:hyperlink w:anchor="${bookmarkFor(r.id)}" w:history="1">${run(text, { link: true })}</w:hyperlink>`
+            : run(text),
+          { list: { numId, level: 0 } },
         ),
       );
     }
   }
   return out;
 }
-
-const NUMBERING = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="\u2022"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`;
 
 // Word opens a package with no compatibility setting in Compatibility Mode, as a 2007 document.
 const SETTINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -200,6 +372,7 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  */
 export async function writeDocx(record: ExportRecord): Promise<Buffer> {
   const links = new Links();
+  const numbering = new Numbering();
   const bases = new Set(record.controls.map((c) => c.id));
   const nested = (c: ExportControl) => !!c.baseId && bases.has(c.baseId);
   const body = [
@@ -212,7 +385,17 @@ export async function writeDocx(record: ExportRecord): Promise<Buffer> {
       ),
     ),
     heading("Controls", 1, { pageBreakBefore: true }),
-    ...record.controls.flatMap((c, i) => controlBlock(c, links, i, nested(c))),
+    ...record.controls.flatMap((c, i) =>
+      controlBlock(
+        c,
+        links,
+        numbering,
+        i,
+        nested(c),
+        bases,
+        !!record.zeroTrustFiltered,
+      ),
+    ),
   ].join("");
 
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -227,7 +410,7 @@ export async function writeDocx(record: ExportRecord): Promise<Buffer> {
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(record.catalog)}</dc:title><dc:language>en-US</dc:language></cp:coreProperties>`,
     "word/document.xml": document,
     "word/styles.xml": STYLES,
-    "word/numbering.xml": NUMBERING,
+    "word/numbering.xml": numbering.xml(),
     "word/settings.xml": SETTINGS,
     "word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdN" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rIdT" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>${links.relationships()}</Relationships>`,

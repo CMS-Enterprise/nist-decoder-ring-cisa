@@ -60,7 +60,7 @@ export function ControlRef({
       onClick={() =>
         part && onOpenPart ? onOpenPart(oscalId, part) : onOpenControl(oscalId)
       }
-      className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+      className="text-accent hover:text-accent-strong font-medium hover:underline"
     >
       {text}
     </button>
@@ -78,7 +78,7 @@ function refs(
         onOpenControl={onOpenControl}
       />
       {e.part && (
-        <span className="text-slate-500"> (item {partPath(e.part)})</span>
+        <span className="text-ink-muted"> (item {partPath(e.part)})</span>
       )}
     </span>
   ));
@@ -94,7 +94,7 @@ export function LineageChip({
 }) {
   if (catalogStatus === "withdrawn") {
     return (
-      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+      <span className="border-border-strong bg-surface-muted text-ink-muted rounded-full border px-2 py-0.5 text-xs font-semibold">
         Withdrawn
       </span>
     );
@@ -106,7 +106,7 @@ export function LineageChip({
       title={
         added.sinceRelease ? `Not in release ${added.sinceRelease}` : undefined
       }
-      className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+      className="border-success bg-success-subtle text-success rounded-full border px-2 py-0.5 text-xs font-semibold"
     >
       New in {added.release}
     </span>
@@ -152,7 +152,7 @@ export function WithdrawnNotice({
                     <button
                       type="button"
                       onClick={() => onOpenFamily(s.controlNumber)}
-                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                      className="text-accent hover:text-accent-strong font-medium hover:underline"
                     >
                       {s.controlNumber}
                     </button>
@@ -178,9 +178,9 @@ export function WithdrawnNotice({
   return (
     <div
       data-testid="withdrawn-notice"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm text-slate-700"
+      className="border-border-strong bg-surface-canvas text-ink flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-2 text-sm"
     >
-      <span className="inline-flex items-center gap-1.5 text-xs font-bold tracking-wider text-slate-600 uppercase">
+      <span className="text-ink-muted inline-flex items-center gap-1.5 text-xs font-bold tracking-wider uppercase">
         <History size={14} aria-hidden="true" /> Withdrawn
       </span>{" "}
       <span>
@@ -208,10 +208,10 @@ export function IncorporatedControls({
   const moved = taken.filter((t) => t.kind === "moved-to");
   return (
     <div className="mt-6" data-testid="incorporated-controls">
-      <div className="mb-2 flex items-center gap-2 text-xs font-bold tracking-wider text-slate-600 uppercase">
+      <div className="text-ink-muted mb-2 flex items-center gap-2 text-xs font-bold tracking-wider uppercase">
         <History size={14} aria-hidden="true" /> Withdrawn Controls
       </div>
-      <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-700 shadow-sm">
+      <div className="border-border bg-surface text-ink space-y-1 rounded-lg border p-4 text-sm leading-relaxed shadow-sm">
         {incorporated.length > 0 && (
           <p>
             Incorporated here:{" "}

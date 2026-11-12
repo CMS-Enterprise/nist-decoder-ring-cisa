@@ -452,6 +452,11 @@ def _part(label):
     return f"  ('part_x', 'x_smt', {label}, 'item', 'Do the thing.', 0, NULL, 'ctrl_x'),\n"
 
 
+def _parts_seed(label):
+    """A one-row 06, as the generator writes it: the INSERT, then its row."""
+    return 'INSERT INTO "ControlPart" VALUES\n' + _part(label)
+
+
 def _parts_file(tmp_path, labels):
     p = tmp_path / "06-control-parts.sql"
     p.write_text("".join(_part(label) for label in labels))
@@ -504,8 +509,11 @@ def test_discussion_link_forms_the_modal_renders_raw_are_reported(tmp_path, text
 # for one defect.
 
 _CLEAN_SEED = {
-    "04-controls.sql": "'See [AC-3](#ac-3).'\n",
-    "06-control-parts.sql": _part("'a.'"),
+    "04-controls.sql": (
+        'INSERT INTO "NistControl" ("id", "name") VALUES '
+        "('ctrl_x', 'See [AC-3](#ac-3).');\n"
+    ),
+    "06-control-parts.sql": _parts_seed("'a.'"),
     "07-control-parameters.sql": "-- Intentionally empty.\n",
     "09-zt-mappings.sql": _zt_sql([_zt_row()]),
     "12-ztmm-guidance-updated.sql": _guidance(
@@ -541,7 +549,7 @@ def test_main_exits_zero_on_a_backbone_only_seed(tmp_path):
 @pytest.mark.parametrize(
     "name, text, marker",
     [
-        ("06-control-parts.sql", _part("'a)'"), "are not a marker shape"),
+        ("06-control-parts.sql", _parts_seed("'a)'"), "are not a marker shape"),
         ("04-controls.sql", "'Retain records for \U0001F13B: 30 days.'\n", "baseline badge glyph(s) survived"),
         (
             "09-zt-mappings.sql",
@@ -609,6 +617,93 @@ def test_main_fails_on_a_missing_backbone_file(tmp_path, seed, name):
     assert result.returncode == 1, result.stdout
     assert f"{name} not found" in result.stdout, result.stdout
     assert "Traceback" not in result.stdout + result.stderr, result.stderr
+
+
+@pytest.mark.parametrize("seed", [_CLEAN_SEED, _BACKBONE_ONLY_SEED], ids=["overlay", "backbone-only"])
+@pytest.mark.parametrize("name", ["04-controls.sql", "06-control-parts.sql"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "\n",
+        "-- Generated. No rows.\n",
+        "/* Generated.\n   No rows. */\n",
+        "\ufeff-- Generated. No rows.\n",
+        "BEGIN;\nCOMMIT;\n",
+        "/* Generated /* nested */ No rows. */\n",
+    ],
+    ids=["zero-bytes", "blank", "comments-only", "block-comment", "byte-order-mark",
+         "transaction-only", "nested-block-comment"],
+)
+def test_main_fails_on_a_backbone_file_that_inserts_no_rows(tmp_path, seed, name, text):
+    """A 04 or 06 that inserts no rows gives every check nothing to find, so it fails like a
+    missing one, whatever else it holds."""
+    result = _run_checker(tmp_path, {**seed, name: text})
+    assert result.returncode == 1, result.stdout
+    assert f"{name} inserts no rows" in result.stdout, result.stdout
+    assert "Traceback" not in result.stdout + result.stderr, result.stderr
+
+
+@pytest.mark.parametrize(
+    "text, rows",
+    [
+        ('BEGIN; INSERT INTO "T" ("id") VALUES (\'x\'); COMMIT;\n', True),
+        ('COPY "T" ("id") FROM stdin;\nx\n\\.\n', True),
+        ('WITH v AS (SELECT 1) INSERT INTO "T" SELECT * FROM v;\n', True),
+        ("SELECT 'INSERT INTO \"T\" VALUES (1)';\n", False),
+        ('/* a /* b */ INSERT INTO "T" VALUES (1); */\n', False),
+        ('-- INSERT INTO "T" VALUES (1);\nBEGIN;\n', False),
+        ('COPY "T" TO stdout;\n', False),
+    ],
+    ids=["one-line-transaction", "copy", "after-a-cte", "inside-a-literal",
+         "inside-a-nested-comment", "inside-a-line-comment", "copy-out"],
+)
+def test_has_rows_finds_an_insert_wherever_a_statement_holds_one(tmp_path, text, rows):
+    path = tmp_path / "seed.sql"
+    path.write_text(text, encoding="utf-8")
+    assert check_seed_sql.has_rows(str(path)) is rows
+
+
+def test_without_comments_reads_comments_as_postgres_does():
+    sql = "a /* x /* y */ still comment */ b -- tail\n'-- kept /* kept */' c"
+    assert check_seed_sql.without_comments(sql) == "a   b  \n'-- kept /* kept */' c"
+
+
+_AFFINITY_ROWS = 'INSERT INTO "ZTMappingAffinity" ("id", "ztMappingId") VALUES\n  (\'a\', \'zt_x\');\n'
+
+
+def test_main_fails_on_rows_keyed_to_mappings_without_09(tmp_path):
+    """With 09 gone and 13 still inserting rows keyed to its mappings, the seed would fail
+    at 13, so the check fails rather than reading the catalog as backbone-only."""
+    files = {k: v for k, v in _CLEAN_SEED.items() if k != "09-zt-mappings.sql"}
+    files["13-zt-mapping-affinity.sql"] = _AFFINITY_ROWS
+    files["11-zt-part-coverage.sql"] = "-- No covered items.\n"
+    result = _run_checker(tmp_path, files)
+    assert result.returncode == 1, result.stdout
+    assert "09-zt-mappings.sql not found, but 13-zt-mapping-affinity.sql inserts rows" in result.stdout, result.stdout
+    assert "11-zt-part-coverage.sql" not in result.stdout, result.stdout
+    assert "skipping the overlay checks" not in result.stdout, result.stdout
+    assert "Traceback" not in result.stdout + result.stderr, result.stderr
+
+
+def test_main_skips_the_overlay_when_09s_dependents_hold_rows_only_in_comments(tmp_path):
+    """An INSERT inside a block comment is not a row, so it does not tie 13 to 09."""
+    files = {k: v for k, v in _CLEAN_SEED.items() if k != "09-zt-mappings.sql"}
+    files["13-zt-mapping-affinity.sql"] = "/*\n" + _AFFINITY_ROWS + "*/\n"
+    result = _run_checker(tmp_path, files)
+    assert result.returncode == 0, result.stdout
+    assert "skipping the overlay checks" in result.stdout, result.stdout
+
+
+def test_main_skips_the_overlay_when_nothing_keyed_to_09_remains(tmp_path):
+    """Guidance and reference files do not depend on 09's rows, so without 09 the catalog
+    is still a backbone-only seed."""
+    files = {k: v for k, v in _CLEAN_SEED.items() if k != "09-zt-mappings.sql"}
+    files["14-zt-reference-links.sql"] = 'INSERT INTO "ReferenceLink" ("id") VALUES (\'r\');\n'
+    files["11-zt-part-coverage.sql"] = "-- No covered items.\n"
+    result = _run_checker(tmp_path, files)
+    assert result.returncode == 0, result.stdout
+    assert "skipping the overlay checks" in result.stdout, result.stdout
 
 
 def test_main_fails_on_missing_guidance_and_runs_every_later_check(tmp_path):

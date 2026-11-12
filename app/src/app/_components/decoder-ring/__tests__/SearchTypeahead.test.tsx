@@ -11,6 +11,8 @@
  * The debounce is a real 250ms setTimeout, so we use real timers + waitFor (polling)
  * to let it settle — fake timers would fight nuqs's async URL-write throttle queue.
  */
+import type { ComponentProps } from "react";
+import type * as NextLink from "next/link";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   render,
@@ -20,6 +22,20 @@ import {
   act,
 } from "@testing-library/react";
 import { withNuqsTestingAdapter } from "nuqs/adapters/testing";
+
+// The real Link, with its prefetch prop echoed onto the <a> as data-prefetch: prefetch
+// only runs in a production build, so jsdom gives no other way to see it.
+vi.mock("next/link", async (importOriginal) => {
+  const { createElement } = await import("react");
+  const { default: Link } = await importOriginal<typeof NextLink>();
+  return {
+    default: (props: ComponentProps<typeof Link>) =>
+      createElement(Link, {
+        ...props,
+        "data-prefetch": String(props.prefetch),
+      } as ComponentProps<typeof Link>),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // tRPC mock — hoisted so vi.mock() runs before the component import.
@@ -180,6 +196,50 @@ describe("SearchTypeahead", () => {
     // A click navigates (the link's own behaviour) and closes the dropdown.
     fireEvent.click(link);
     expect(screen.queryByText("AC-02")).not.toBeInTheDocument();
+  });
+
+  it.each(["metaKey", "ctrlKey", "shiftKey", "altKey"] as const)(
+    "keeps the dropdown open on a click with %s held",
+    async (modifier) => {
+      // Link leaves a modified click to the browser, which opens the control elsewhere
+      // and leaves this page as it was, so the list stays for the next result.
+      renderTypeahead();
+      await typeAndSettle("ac");
+
+      await waitFor(() => {
+        expect(screen.getByText("AC-02")).toBeInTheDocument();
+      });
+      // jsdom cannot open a tab, so it would load the address in place; the document
+      // cancels that after Link and the component have seen the click.
+      const cancelPageLoad = (e: Event) => e.preventDefault();
+      document.addEventListener("click", cancelPageLoad);
+      try {
+        fireEvent.click(screen.getByRole("link", { name: /AC-02/ }), {
+          [modifier]: true,
+        });
+      } finally {
+        document.removeEventListener("click", cancelPageLoad);
+      }
+      expect(screen.getByText("AC-02")).toBeInTheDocument();
+      expect(screen.getByText("AC-03")).toBeInTheDocument();
+    },
+  );
+
+  it("turns prefetch off on every result", async () => {
+    // With prefetch on, each result would ask the server for its control while the
+    // reader is still typing.
+    renderTypeahead();
+    await typeAndSettle("ac");
+
+    await waitFor(() => {
+      expect(screen.getByText("AC-02")).toBeInTheDocument();
+    });
+    for (const name of [/AC-02/, /AC-03/]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute(
+        "data-prefetch",
+        "false",
+      );
+    }
   });
 
   it("does not show a dropdown for a <2-char term", async () => {

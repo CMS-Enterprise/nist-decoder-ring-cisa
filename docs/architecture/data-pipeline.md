@@ -4,7 +4,7 @@ How control data gets from its sources into the database, and how the app derive
 
 ## Mental model (start here)
 
-The database is **seeded, not authored**. Sources feed generators that emit ordered SQL files; `app/prisma/seed.ts` runs every `seed-sql/<catalog>/*.sql` in alphabetical order via `psql`. To change the data you change a **source**, regenerate, and reseed. You never hand-edit rows.
+The database is **seeded, not authored**. Sources feed generators that emit ordered SQL files; `app/prisma/seed.ts` runs every `seed-sql/<catalog>/*.sql` in alphabetical order through the `pg` driver, with the same loader the ECS seed task runs. To change the data you change a **source**, regenerate, and reseed. You never hand-edit rows.
 
 **Seed SQL is per catalog.** One deployment holds one catalog, so a run is told which: `SEED_CATALOG=<name>` or `--catalog=<name>`, declared and never inferred. This repository's catalog is `nist-800-53/`, the stock NIST SP 800-53 Rev 5 catalog with its Zero Trust overlay, and every default (`make db-seed`, `yarn seed:generate`, `scripts/check-seed-sql.py`) points at it. A run that finds no `.sql` files fails rather than reporting a successful empty seed.
 
@@ -13,7 +13,7 @@ NIST OSCAL catalog + SP 800-53B profiles ─┐
 previous release's catalog ───────────────┤
 SP 800-53A assessment export ─────────────┴─► generators/catalog ► 00–08, 15, 16 ─┐
 catalog back-matter ──► reference-links ─────────────────────────────► 10 ───┤
-CISA ZTMM control mapping ─────────────────► generators/zt-overlay ► 09/11/13 ─┼─► seed.ts ─► Postgres
+CISA ZTMM control mapping ─────────────────► generators/zt-overlay ► 09/11/13 ─┼─► loadSeed ► Postgres
 hand-edited ZTMM guidance ───────────────────────────────────────────► 12 ───┤
 mapped Zero Trust sources ────► zt-reference-links ──────────────────► 14 ───┘
 ```
@@ -28,8 +28,8 @@ Two ideas do the heavy lifting and recur throughout:
 **Every run replaces the catalog; nothing merges.** `00-cleanup.sql` truncates every catalog table, and each later file inserts into empty tables. The `ON CONFLICT … DO NOTHING` clauses in the generated files guard against a repeated key within one run. They never update a row from an earlier run, because no earlier rows survive the truncate. This is deliberate: the data belongs to its sources, so a reseed is a reload, not a migration.
 
 - **Always run the whole seed.** Running one file against a seeded database bypasses the truncate, and `DO NOTHING` then keeps the old rows wherever a key already exists, silently. To change data, change the source, regenerate, and reseed in full.
-- **Files commit one at a time, and a failure stops the run at that file.** Locally, `seed.ts` runs each file through `psql -v ON_ERROR_STOP=1`. On ECS, `seed-ecs.ts` sends each file as one query, so a failing file rolls back on its own. Either way, the files before it stay loaded and the files after it never run, so the database holds a partial catalog until the next full run.
-- **A failed run says how far it got.** Both runners log each file before running it. On a failure they add one `Partial seed:` line naming the files that loaded, the file that failed and the files that never ran, then the error itself (`[seed-ecs] Failed: <error>` on ECS), and exit 1. `make ecs-run-seed` and `make ecs-run-migrate` fail on a non-zero task exit, which also stops `make deploy` before it redeploys. A run that completed ends with `Seed completed successfully.` or `[seed-ecs] Completed <n> file(s)`.
+- **Files commit one at a time, and a failure stops the run at that file.** Locally and on ECS, one loader (`loadSeed` in `seed-ecs.ts`) sends each file as one query, so a failing file rolls back on its own. The files before it stay loaded and the files after it never run, so the database holds a partial catalog until the next full run.
+- **A failed run says how far it got.** The loader logs each file before running it, tagged `[seed]` locally and `[seed-ecs]` on ECS. On a failure it adds one `Partial seed:` line naming the files that loaded, the file that failed and the files that never ran, then the error itself (`[seed-ecs] Failed: <error>` on ECS), and the run exits 1. `make ecs-run-seed` and `make ecs-run-migrate` fail on a non-zero task exit, which also stops `make deploy` before it redeploys. A run that completed ends with `[seed] Completed <n> file(s)` or `[seed-ecs] Completed <n> file(s)`.
 - **Recovery is another full run.** Fix the source or the generator, regenerate, and run the whole seed again. It starts by truncating, so a rerun after a failure is always safe.
 
 **Deploying to an environment:** apply the schema first, then seed, then restart the app on it: `make ecs-run-migrate ENV=<env>`, `make ecs-run-seed ENV=<env>`, then `make ecs-redeploy ENV=<env>`. A seed against a schema that is behind the generated SQL fails at the first missing column, and the steps above apply. Runbook: [`ecs-migration-and-seed.md`](../runbooks/ecs-migration-and-seed.md).
@@ -73,9 +73,9 @@ Everything the pipeline reads, runs and writes is under `app/prisma/`, sorted by
 | `sources/`            | Inputs, never generated by the pipeline: `nist-800-53/` (the pinned catalog, profiles and 800-53A export, with `SOURCE.md`), `zt-mapping/` (the Zero Trust mapping tables), `reference-links/<corpus>/` (live-check results, overrides, mapped sources) | a person, a retrieval step, or the CISA workbook transform |
 | `generators/`         | Code and tests only: `catalog/`, `zt-overlay/`, `reference-links/`, `zt-reference-links/`, `shared/control-identifier/`                                                                                                                                 | a person                                                   |
 | `reports/`            | What a generator reports about its run: `zt-overlay/` (tuples, CISA findings), `reference-links/<corpus>/` (registry, redirects)                                                                                                                        | the generators                                             |
-| `seed-sql/<catalog>/` | The seed `seed.ts` loads, in file order                                                                                                                                                                                                                 | the generators                                             |
+| `seed-sql/<catalog>/` | The seed the loader runs, in file order                                                                                                                                                                                                                 | the generators                                             |
 
-`schema.prisma`, `migrations/` and the seed runner (`seed.ts`, `seed-ecs.ts`, `catalog-dir.ts`, `docker-psql-target.ts`) stay at the top, where Prisma expects them.
+`schema.prisma`, `migrations/` and the seed runner (`seed.ts`, `seed-ecs.ts`, `catalog-dir.ts`, `seed-progress.ts`) stay at the top, where Prisma expects them.
 
 ## Transformations (the generators)
 
@@ -129,9 +129,13 @@ Full flags, exit semantics and gotchas: [`generate-nist-seed.md`](../scripts/gen
 
 No generator. CISA, NIST and OMB guidance cited at the page or section that addresses a control, one file per publisher (`17-zt-references-nist.sql`, `18-zt-references-cisa.sql`, `19-zt-references-omb.sql`), each its own source and edited directly under the contract in its header. They write the same two tables as `14`, plus a `DataSource` row each recording when the file's links were last checked; the pane reports the oldest of those dates. `make check-seed-links SEED_FILES=<file>` checks one file's links live. The acceptance rule and the way to add a row are in the `zt-reference-links` README.
 
+### Hand-maintained FIPS 199 and FIPS 200 → `nist-800-53/20`
+
+No generator. `20-fips.sql` seeds the two standards that put a system into a baseline, from the published PDFs, under the contract in its header: `FipsImpactLevel`, the three FIPS 199 potential impact levels with their definitions, and `Fips200Requirement`, the seventeen FIPS 200 minimum security requirement areas, one per control family that answers one (PM, PT and SR have none), each with a deep link to its page. Neither standard changes, so the rows are written once and edited directly. Nothing reads them yet; `make check-seed-links SEED_FILES=20-fips.sql` checks the links live, and `src/test/db/fips-seed.integration.test.ts` pins the rows.
+
 ### Why the file numbers
 
-Files seed in alphabetical order. `12` (ZTMM guidance) is edited by hand and seeds after `09` because guidance resolves by **read-time natural key**, not a foreign key, so its order relative to `09` is free. `08` holds the assessment procedures. Slot `10` holds the catalog's own reference links, and `14` the Zero Trust pane's references, which seed after `13` and depend only on the control rows. The withdrawn controls (`15`) and the lineage (`16`) stay out of `04`, because the overlay checks every control it maps against `04` and a withdrawn control is never one to map. The hand-maintained Zero Trust references (`17` to `19`) seed after `14`, so each control's generated references come first and these follow. New seed files use whole-number prefixes (`20`, `21`, …), never subletters.
+Files seed in alphabetical order. `12` (ZTMM guidance) is edited by hand and seeds after `09` because guidance resolves by **read-time natural key**, not a foreign key, so its order relative to `09` is free. `08` holds the assessment procedures. Slot `10` holds the catalog's own reference links, and `14` the Zero Trust pane's references, which seed after `13` and depend only on the control rows. The withdrawn controls (`15`) and the lineage (`16`) stay out of `04`, because the overlay checks every control it maps against `04` and a withdrawn control is never one to map. The hand-maintained Zero Trust references (`17` to `19`) seed after `14`, so each control's generated references come first and these follow. `20` (FIPS 199 and FIPS 200) depends only on the families in `03`. New seed files use whole-number prefixes (`21`, `22`, …), never subletters.
 
 ## Read-time derivation (follow-on data)
 
@@ -148,7 +152,7 @@ Several things the UI shows are **computed at query time** in `app/src/server/ap
 
 ## Current counts (NIST SP 800-53 Rev 5.2.0, verified 2026-10-28)
 
-1,196 controls: 1,014 live (300 base, 714 enhancements) and 182 withdrawn (24 base, 158 enhancements) · 203 `ControlLineage` · 20 families · 2,136 `ControlPart` · 0 `ControlParameter` · 2,790 `AssessmentObjective` · 2,931 `AssessmentMethod` · 836 `NistLink` · 345 `ZeroTrustMapping` · 0 `ZTPartCoverage` · 36 `ZTMMGuidance` · 628 `ZTMappingAffinity` · 77 `ReferenceLink` (696 `NistControlLink` junctions: 604 from `14`, 92 from the hand-maintained `17` to `19`).
+1,196 controls: 1,014 live (300 base, 714 enhancements) and 182 withdrawn (24 base, 158 enhancements) · 203 `ControlLineage` · 20 families · 2,136 `ControlPart` · 0 `ControlParameter` · 2,790 `AssessmentObjective` · 2,931 `AssessmentMethod` · 836 `NistLink` · 345 `ZeroTrustMapping` · 0 `ZTPartCoverage` · 36 `ZTMMGuidance` · 628 `ZTMappingAffinity` · 77 `ReferenceLink` (696 `NistControlLink` junctions: 604 from `14`, 92 from the hand-maintained `17` to `19`) · 3 `FipsImpactLevel` · 17 `Fips200Requirement`.
 
 **Every control CISA maps exists in Rev 5.** `reports/zt-overlay/tuples.csv` has the breakdown per tuple.
 

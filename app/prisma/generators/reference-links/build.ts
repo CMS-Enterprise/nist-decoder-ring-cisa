@@ -10,7 +10,7 @@
  *
  * Deterministic: the same three inputs produce byte-identical files.
  *
- *   tsx prisma/generators/reference-links/build.ts [--corpus nist-800-53] [--out-dir <dir>]
+ *   tsx prisma/generators/reference-links/build.ts [--corpus nist-800-53] [--out-dir <dir>] [--reports-dir <dir>]
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -66,7 +66,9 @@ function main(): void {
   const outputDir =
     option("out-dir") ?? resolve(HERE, "../../seed-sql", corpus);
   const dataDir = resolve(HERE, "../../sources/reference-links", corpus);
-  const reportsDir = resolve(HERE, "../../reports/reference-links", corpus);
+  const reportsDir =
+    option("reports-dir") ??
+    resolve(HERE, "../../reports/reference-links", corpus);
 
   console.log(`reference-links build: corpus ${corpus}`);
   console.log(`Output: ${outputDir}\n`);
@@ -149,7 +151,7 @@ function main(): void {
     }),
   );
   console.log(
-    `\n  wrote 10-reference-links.sql, reports/reference-links/${corpus}/registry.csv, reports/reference-links/${corpus}/redirects.md`,
+    `\n  wrote 10-reference-links.sql, ${join(reportsDir, "registry.csv")}, ${join(reportsDir, "redirects.md")}`,
   );
   console.log(`\nDone.`);
 }

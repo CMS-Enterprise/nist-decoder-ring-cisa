@@ -1,9 +1,15 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useEffectEvent } from "react";
+import {
+  useRef,
+  useEffect,
+  useCallback,
+  useEffectEvent,
+  useState,
+} from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import type { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
-import FamilyColumn from "./FamilyColumn";
+import FamilyColumn, { ZT_STATES } from "./FamilyColumn";
 import { matchesQuery, type FilterQuery } from "./filterPredicate";
 import { product } from "~/config/product";
 
@@ -86,6 +92,13 @@ export default function LayerCakeVisualization({
       )
     : families;
   const empty = visibleFamilies.length === 0;
+  // The families last shown, by id, so the empty state can keep them laid out (below).
+  const shownIds = visibleFamilies.map((family) => family.id).join(" ");
+  const [lastShownIds, setLastShownIds] = useState(shownIds);
+  if (!empty && shownIds !== lastShownIds) setLastShownIds(shownIds);
+  const lastShown = families.filter((family) =>
+    lastShownIds.split(" ").includes(family.id),
+  );
   const matchedCount = isActive
     ? visibleFamilies.reduce(
         (sum, family) =>
@@ -249,34 +262,75 @@ export default function LayerCakeVisualization({
   }, [fitContent, reflow, matchedCount]);
 
   // The chips are links, and a pan that starts and ends on one would otherwise follow
-  // it: the chip moves with the pointer, so the release lands on the chip pressed. A
-  // click that ends further than DRAG_SLOP from where it started was a pan, and is
-  // cancelled before the link sees it; Next's Link skips a default-prevented click.
+  // it: the chip moves with the pointer, so the release lands on the chip pressed. The
+  // pan library reports where each mouse pan starts and each move after; a pan whose
+  // pointer went further than DRAG_SLOP from where it started, at any point, has moved.
+  // The window's mouseup ends it, the one event every release produces, even when the
+  // library has already let the pan go (the pointer left the document, or the window
+  // lost focus). A moved pan's mouseup cancels the click, or a middle button's
+  // auxclick, that its release produces; Next's Link skips a default-prevented click.
+  // That click comes straight after the release, before any timer, so the cancel lasts
+  // one tick: a click with no pan behind it (Enter on a focused chip, a screen reader's
+  // activate, a later click) always goes through. Only the reader's mouse counts: a
+  // touch pan produces no click to cancel, and the library's own reports (a synthetic
+  // event from panBy, an empty object on each inertia frame) are not trusted events.
   const DRAG_SLOP = 5;
-  const pressedAt = useRef<{ x: number; y: number } | null>(null);
-  const cancelClickAfterPan = (e: React.MouseEvent) => {
-    const start = pressedAt.current;
-    pressedAt.current = null;
-    // A click with no pointer behind it (Enter on a focused chip, a screen reader's
-    // activate) reports detail 0; it is never the end of a pan.
-    if (e.detail === 0) return;
+  const pan = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const cancelNextClick = useRef(false);
+  const readersMouse = (e: MouseEvent | TouchEvent) =>
+    e.isTrusted && !("touches" in e) ? e : undefined;
+  // Each press replaces the last pan, below, and that is what keeps a lost release
+  // harmless. If the window loses focus mid-pan and the button is let go elsewhere, the
+  // page sees no mouseup, and a moved pan is left behind. The next press on the canvas
+  // replaces it before its own release, so a chip's click goes through. The zoom buttons
+  // are outside the area the library pans from, so a stale pan can cancel their click,
+  // but a button's click has no default action to cancel and the zoom still happens.
+  const onPanningStart = (
+    _: ReactZoomPanPinchRef,
+    e: MouseEvent | TouchEvent,
+  ) => {
+    const at = readersMouse(e);
+    if (at) pan.current = { x: at.clientX, y: at.clientY, moved: false };
+  };
+  const onPanning = (_: ReactZoomPanPinchRef, e: MouseEvent | TouchEvent) => {
+    const start = pan.current;
+    const at = readersMouse(e);
     if (
       start &&
-      Math.hypot(e.clientX - start.x, e.clientY - start.y) > DRAG_SLOP
+      at &&
+      Math.hypot(at.clientX - start.x, at.clientY - start.y) > DRAG_SLOP
     )
-      e.preventDefault();
+      start.moved = true;
+  };
+  useEffect(() => {
+    const endPan = () => {
+      const moved = pan.current?.moved ?? false;
+      pan.current = null;
+      if (!moved) return;
+      cancelNextClick.current = true;
+      setTimeout(() => {
+        cancelNextClick.current = false;
+      }, 0);
+    };
+    window.addEventListener("mouseup", endPan);
+    return () => window.removeEventListener("mouseup", endPan);
+  }, []);
+  const cancelClickAfterPan = (e: React.MouseEvent) => {
+    if (!cancelNextClick.current) return;
+    cancelNextClick.current = false;
+    e.preventDefault();
   };
 
   return (
     <section className="px-4 py-4">
       {/* Header row */}
       <div className="mx-auto mb-3 flex max-w-[96rem] items-center justify-between">
-        <h2 className="flex items-center gap-2 text-xl font-bold text-slate-800">
-          <span className="h-8 w-2 rounded-full bg-blue-600"></span>
+        <h2 className="text-ink flex items-center gap-2 text-xl font-bold">
+          <span className="bg-accent h-8 w-2 rounded-full"></span>
           {product.familiesHeading}
           <span
             aria-live="polite"
-            className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600"
+            className="bg-surface-muted text-ink-muted rounded-full px-3 py-1 text-sm font-medium"
           >
             {isActive
               ? `Showing ${matchedCount} of ${totalControls} controls`
@@ -284,48 +338,43 @@ export default function LayerCakeVisualization({
           </span>
         </h2>
 
-        {/* Legend */}
-        <div className="flex gap-4 text-xs font-medium">
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-blue-600"></span>
-            <span className="text-slate-600">ZT Aligned</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-violet-600"></span>
-            <span className="text-slate-600">ZT Aligned + Enhancements</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-teal-700"></span>
-            <span className="text-slate-600">ZT Enhancements</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full border border-slate-300 bg-slate-200"></span>
-            <span className="text-slate-600">{product.baselineChipLabel}</span>
-          </div>
-        </div>
+        {/* Legend: the chips' own color and glyph for each state, from the same list. */}
+        <ul className="flex flex-wrap gap-4 text-xs font-medium">
+          {ZT_STATES.map((state) => (
+            <li key={state.status} className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className={`inline-flex h-4 w-4 items-center justify-center rounded border text-[9px] ${state.chip}`}
+              >
+                {state.glyph}
+              </span>
+              <span className="text-ink-muted">
+                {state.label ?? product.baselineChipLabel}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Zoom/Pan Canvas */}
       <div
         ref={containerRef}
-        className="relative mx-auto max-w-[96rem] overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+        className="border-border bg-surface-canvas relative mx-auto max-w-[96rem] overflow-hidden rounded-xl border"
         style={{ height: "65vh" }}
-        onPointerDownCapture={(e) => {
-          pressedAt.current = { x: e.clientX, y: e.clientY };
-        }}
         onClickCapture={cancelClickAfterPan}
+        onAuxClickCapture={cancelClickAfterPan}
       >
         {/* The empty state covers the canvas rather than replacing it. Unmounted, the
             canvas would come back as a new TransformWrapper at its initial scale in the
             corner, then jump when a fit caught up; kept, it comes back where the reader
             left it. */}
         {empty ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-50">
+          <div className="bg-surface-canvas absolute inset-0 z-20 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-lg text-slate-400">
+              <p className="text-ink-muted text-lg">
                 No controls match the current filter.
               </p>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="text-ink-muted mt-2 text-sm">
                 Try selecting a different filter option.
               </p>
             </div>
@@ -338,6 +387,8 @@ export default function LayerCakeVisualization({
           maxScale={2}
           wheel={{ step: 0.05 }}
           smooth
+          onPanningStart={onPanningStart}
+          onPanning={onPanning}
         >
           {({ zoomIn, zoomOut }) => (
             <>
@@ -346,21 +397,21 @@ export default function LayerCakeVisualization({
                 <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
                   <button
                     onClick={() => zoomIn()}
-                    className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-100"
+                    className="border-border-strong bg-surface text-ink hover:bg-surface-muted flex h-8 w-8 items-center justify-center rounded border text-sm font-bold shadow-sm"
                     title="Zoom in"
                   >
                     +
                   </button>
                   <button
                     onClick={() => zoomOut()}
-                    className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-100"
+                    className="border-border-strong bg-surface text-ink hover:bg-surface-muted flex h-8 w-8 items-center justify-center rounded border text-sm font-bold shadow-sm"
                     title="Zoom out"
                   >
                     −
                   </button>
                   <button
                     onClick={recenter}
-                    className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-xs text-slate-500 shadow-sm hover:bg-slate-100"
+                    className="border-border-strong bg-surface text-ink-muted hover:bg-surface-muted flex h-8 w-8 items-center justify-center rounded border text-xs shadow-sm"
                     title="Center the middle family, snap to top"
                   >
                     ⊙
@@ -370,7 +421,7 @@ export default function LayerCakeVisualization({
 
               {/* Hint */}
               {empty ? null : (
-                <div className="absolute bottom-3 left-3 z-10 rounded bg-white/80 px-2 py-1 text-xs text-slate-400 shadow-sm">
+                <div className="bg-surface/80 text-ink-muted absolute bottom-3 left-3 z-10 rounded px-2 py-1 text-xs shadow-sm">
                   Scroll to zoom · Drag to pan
                 </div>
               )}
@@ -379,16 +430,26 @@ export default function LayerCakeVisualization({
                 wrapperStyle={{ width: "100%", height: "100%" }}
                 contentStyle={{ padding: "24px" }}
               >
-                {/* With nothing matching, every family stays laid out, hidden: emptied,
-                    the content would shrink to its padding and the library would pull the
-                    view back inside those bounds, to the corner. */}
+                {/* With nothing matching, the families last shown stay laid out, hidden:
+                    emptied, the content would shrink to its padding and the library would
+                    pull the view back inside those bounds, to the corner. Holding the same
+                    families, rather than every one, keeps the content the size the reader
+                    left, so the view comes back where it was. With nothing shown yet, as
+                    on a link that matches nothing, every family stands in. Under Collapse
+                    to matches the hidden columns shrink to their placeholders, and the
+                    re-fit on the way out covers that. */}
                 <div
                   ref={contentRef}
                   className={`flex gap-6 ${empty ? "invisible" : ""}`}
                   aria-hidden={empty || undefined}
                   inert={empty}
                 >
-                  {(empty ? families : visibleFamilies).map((family) => (
+                  {(empty
+                    ? lastShown.length > 0
+                      ? lastShown
+                      : families
+                    : visibleFamilies
+                  ).map((family) => (
                     <FamilyColumn
                       key={family.id}
                       family={family}

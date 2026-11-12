@@ -91,7 +91,6 @@ export type ControlOverrides = Partial<
     | "referenceLinks"
     | "reviewFrequency"
     | "assessmentFrequency"
-    | "priority"
     | "discussion"
     | "oscalId"
     | "assessmentObjectives"
@@ -130,7 +129,6 @@ export function makeControl(overrides: ControlOverrides = {}): ControlFixture {
     referenceLinks: overrides.referenceLinks ?? [],
     reviewFrequency: overrides.reviewFrequency ?? null,
     assessmentFrequency: overrides.assessmentFrequency ?? null,
-    priority: overrides.priority ?? null,
     assessmentObjectives: overrides.assessmentObjectives ?? [],
     assessmentMethods: overrides.assessmentMethods ?? [],
   };

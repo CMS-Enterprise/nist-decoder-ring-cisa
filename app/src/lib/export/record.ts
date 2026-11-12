@@ -22,6 +22,7 @@ export const EXPORT_FIELDS = [
   "frequency",
   "priority",
   "lineage",
+  "related",
 ] as const;
 export type ExportField = (typeof EXPORT_FIELDS)[number];
 
@@ -83,6 +84,12 @@ export interface ExportFrequency {
   value: string | null;
 }
 
+/** A related control; its name is null when this catalog does not select it. */
+export interface ExportRelated {
+  id: string;
+  name: string | null;
+}
+
 export interface ExportControl {
   id: string;
   oscalId: string | null;
@@ -96,6 +103,8 @@ export interface ExportControl {
   priority?: string | null;
   /** Withdrawn status and where the content went, as lines of text; empty for a live control with none. */
   lineage?: string[];
+  /** The catalog's related controls: the ones it selects, then the ones it does not. */
+  related?: ExportRelated[];
   statement?: {
     text: string;
     discussion: string | null;
@@ -113,6 +122,8 @@ export interface ExportRecord {
   versionId: string;
   datasets: ExportDataset[];
   fields: ExportField[];
+  /** A filter limited each control's Zero Trust rows to the ones matching it. */
+  zeroTrustFiltered?: boolean;
   controls: ExportControl[];
 }
 
@@ -122,6 +133,10 @@ export const frequencyLabel = (f: ExportFrequency): string =>
 
 /** What every output says for a frequency its source does not define. */
 export const NO_FREQUENCY = "not defined";
+
+/** What the DOCX says for a control with no Zero Trust row matching every filter. */
+export const NO_MATCHING_ROW =
+  "No Zero Trust row matches all the selected filters.";
 
 /** What Copy and the DOCX say for a control the catalog assigns no priority. */
 export const NO_PRIORITY = "none assigned";
