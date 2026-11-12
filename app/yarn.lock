@@ -1516,7 +1516,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@nodable/entities@npm:^3.0.1":
+"@nodable/entities@npm:^3.0.1, @nodable/entities@npm:^3.1.0":
   version: 3.1.0
   resolution: "@nodable/entities@npm:3.1.0"
   checksum: 10c0/a1a2a081949a72da17846dc44962dc95a2bf5268867407fc4f6b686acda4dc5e9fd85f0398999969309b9f7fe0fbe85947a91c1ddac47eba8f9b58224c36f6fb
@@ -5783,7 +5783,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fast-xml-builder@npm:^1.2.0":
+"fast-xml-builder@npm:^1.2.0, fast-xml-builder@npm:^1.3.1":
   version: 1.3.1
   resolution: "fast-xml-builder@npm:1.3.1"
   dependencies:
@@ -5793,7 +5793,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fast-xml-parser@npm:5.11.2, fast-xml-parser@npm:^5.10.1":
+"fast-xml-parser@npm:5.12.0":
+  version: 5.12.0
+  resolution: "fast-xml-parser@npm:5.12.0"
+  dependencies:
+    "@nodable/entities": "npm:^3.1.0"
+    fast-xml-builder: "npm:^1.3.1"
+    is-unsafe: "npm:^2.0.3"
+    path-expression-matcher: "npm:^1.6.2"
+    strnum: "npm:^2.5.1"
+    xml-naming: "npm:^0.3.0"
+  bin:
+    fxparser: src/cli/cli.js
+  checksum: 10c0/a63d7bb83aa4a0375762598ddc46535eb02237b046fa235c67e10079a4d706c34467d8336fb492b8020f6dd90070817e08792d1acb93fa4e8b8bd1aee99f705f
+  languageName: node
+  linkType: hard
+
+"fast-xml-parser@npm:^5.10.1":
   version: 5.11.2
   resolution: "fast-xml-parser@npm:5.11.2"
   dependencies:
@@ -6677,6 +6693,13 @@ __metadata:
   version: 2.0.2
   resolution: "is-unsafe@npm:2.0.2"
   checksum: 10c0/3f92f6534e326ae13f4a4733d0d6b9f06f2b7ab80d99c1973eb32b33b00cf9bc7a8505e3260f36209c9109f56a46bb64cc6bd0a27e37fee08cd35892a2b6ae44
+  languageName: node
+  linkType: hard
+
+"is-unsafe@npm:^2.0.3":
+  version: 2.0.3
+  resolution: "is-unsafe@npm:2.0.3"
+  checksum: 10c0/509ee09ccaa2613c95e3625c39be029fc8838cce29e1582a560d7f11291516cfad55178efbb1062ac50267064a08ce8c724757d0b90c6b45d6ee5e4b121d45a6
   languageName: node
   linkType: hard
 
@@ -9422,7 +9445,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"strnum@npm:^2.4.2":
+"strnum@npm:^2.4.2, strnum@npm:^2.5.1":
   version: 2.5.1
   resolution: "strnum@npm:2.5.1"
   dependencies:
@@ -10464,7 +10487,7 @@ __metadata:
     dotenv: "npm:^18.0.9"
     eslint: "npm:^10.14.0"
     eslint-config-next: "npm:^16.3.5"
-    fast-xml-parser: "npm:5.11.2"
+    fast-xml-parser: "npm:5.12.0"
     fflate: "npm:0.8.3"
     husky: "npm:^9.1.7"
     jsdom: "npm:^30.0.1"
