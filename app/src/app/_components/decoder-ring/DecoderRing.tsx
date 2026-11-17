@@ -38,6 +38,12 @@ export default function DecoderRing({
     [data],
   );
 
+  // Catalog order, for the search's enhancement results.
+  const controls = useMemo(
+    () => data?.families.flatMap((f) => f.controls) ?? [],
+    [data],
+  );
+
   // URL-backed filter + search state — the Bridge is the first consumer of the shared
   // GlobalFilterQuery contract. The diagram dims non-matches and collapses empty families.
   const { query, isActive, clear, search: filterSearch } = useDecoderQuery();
@@ -133,7 +139,7 @@ export default function DecoderRing({
           {/* FILTER + SEARCH BAR */}
           <div className="mx-auto mb-3 flex max-w-[96rem] flex-col gap-2 px-4 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <SearchTypeahead hrefFor={hrefFor} />
+              <SearchTypeahead hrefFor={hrefFor} controls={controls} />
               <Link
                 href={toExport("/export", query)}
                 className="border-border-strong bg-surface text-ink hover:bg-surface-muted rounded-lg border px-3 py-1.5 text-sm font-medium"

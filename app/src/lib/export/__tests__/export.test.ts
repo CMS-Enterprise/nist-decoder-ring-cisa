@@ -9,6 +9,7 @@ vi.hoisted(() => {
 });
 
 import { product } from "~/config/product";
+import { NO_APP_URL, type ExportMeta } from "../about";
 import { buildCopyText } from "../copy-text";
 import { bookmarkFor, writeDocx } from "../docx";
 import {
@@ -440,6 +441,7 @@ describe("the selection URL", () => {
 
 const record = (): ExportRecord => ({
   catalog: "Example Catalog 1.0",
+  catalogVersion: "1.0",
   versionId: "v1",
   datasets: ["statement", "zeroTrust", "references"],
   fields: [...LINE_FIELDS],
@@ -459,24 +461,37 @@ const record = (): ExportRecord => ({
   ],
 });
 
+// What a file says about itself: built at a fixed time, from the whole catalog.
+const META: ExportMeta = {
+  exportedAt: new Date("2026-11-09T14:05:00Z"),
+  appVersion: "0.1.17",
+  appUrl: "https://decoder.example.gov",
+  selection: loadExportSelection(""),
+};
+
 describe("exportSheets", () => {
   it("writes one sheet per chosen dataset, each row keyed by control", () => {
-    const sheets = exportSheets(record());
+    const sheets = exportSheets(record(), META);
     expect(sheets.map((s) => s.name)).toEqual([
+      "About",
       "Controls",
       "Frequency",
-      "Statement",
       "Parameters",
       "Zero Trust",
       "References",
     ]);
-    for (const s of sheets) {
+    for (const s of sheets.slice(1)) {
       expect(s.header[0]).toBe("Control");
       for (const row of s.rows)
         expect(["AC-02", "AC-02(01)"]).toContain(row[0]);
     }
-    const controls = sheets[0]!;
-    expect(controls.rows[1]).toEqual([
+    const controls = sheets[1]!;
+    expect(controls.header.slice(-3)).toEqual([
+      "Statement",
+      "Discussion",
+      "Link",
+    ]);
+    expect(controls.rows[1]!.slice(0, 7)).toEqual([
       "AC-02(01)",
       "ac-2.1",
       "Account Management",
@@ -485,7 +500,10 @@ describe("exportSheets", () => {
       "Low, Moderate",
       null,
     ]);
-    expect(sheets[1]!.rows.slice(0, 2)).toEqual([
+    expect(controls.rows[1]!.at(-1)).toBe(
+      "https://decoder.example.gov/control/AC-02?enh=01",
+    );
+    expect(sheets[2]!.rows.slice(0, 2)).toEqual([
       [
         "AC-02",
         "Catalog",
@@ -511,17 +529,64 @@ describe("exportSheets", () => {
   });
 
   it("adds the Parameters sheet only when the selection has parameters", () => {
-    const names = (r: ExportRecord) => exportSheets(r).map((s) => s.name);
+    const names = (r: ExportRecord) => exportSheets(r, META).map((s) => s.name);
     expect(names(record())).toContain("Parameters");
     const r = record();
     for (const c of r.controls) if (c.statement) c.statement.parameters = [];
-    expect(names(r)).toContain("Statement");
     expect(names(r)).not.toContain("Parameters");
+  });
+
+  it("opens the Parameters sheet on a line saying what it is for", () => {
+    const sheet = exportSheets(record(), META).find(
+      (s) => s.name === "Parameters",
+    )!;
+    expect(sheet.note).toMatch(
+      /^Each organization-defined value, per baseline/,
+    );
+  });
+
+  it("carries each control's statement and discussion on Controls, with no Statement sheet", () => {
+    const sheets = exportSheets(record(), META);
+    expect(sheets.map((s) => s.name)).not.toContain("Statement");
+    const controls = sheets.find((s) => s.name === "Controls")!;
+    const at = (h: string) => controls.header.indexOf(h);
+    expect(controls.rows[0]![at("Statement")]).toBe(
+      record().controls[0]!.statement!.text,
+    );
+    const r = record();
+    r.datasets = ["zeroTrust"];
+    expect(
+      exportSheets(r, META).find((s) => s.name === "Controls")!.header,
+    ).not.toContain("Statement");
+  });
+
+  it("opens on an About sheet saying what the file is", () => {
+    const about = exportSheets(record(), META)[0]!;
+    expect(about.plain).toBe(true);
+    expect(Object.fromEntries(about.rows)).toMatchObject({
+      Exported: "2026-11-09 14:05 UTC",
+      "App version": "0.1.17",
+      Catalog: "Example Catalog 1.0",
+      "Catalog version": "1.0",
+      "Filters and picks": "None: every control in the catalog",
+      Controls: "2",
+      "Open this export in the app": "https://decoder.example.gov/export",
+    });
+  });
+
+  it("says when the deployment sets no address, and links nowhere", () => {
+    const sheets = exportSheets(record(), { ...META, appUrl: null });
+    expect(Object.fromEntries(sheets[0]!.rows)).toMatchObject({
+      "Open this export in the app": NO_APP_URL,
+    });
+    const controls = sheets.find((s) => s.name === "Controls")!;
+    expect(controls.header).not.toContain("Link");
+    expect(controls.linkColumn).toBeUndefined();
   });
 
   it("adds the Citation column only when some reference carries a citation", () => {
     const references = (r: ExportRecord) =>
-      exportSheets(r).find((s) => s.name === "References")!;
+      exportSheets(r, META).find((s) => s.name === "References")!;
     expect(references(record()).header).not.toContain("Citation");
     const r = record();
     r.controls[0]!.references![0]!.citation = "SP 800-207, §3";
@@ -541,7 +606,7 @@ describe("exportSheets", () => {
     const r = record();
     r.fields = ["lineage"];
     r.controls[0]!.lineage = ["Status: Withdrawn", "New in 5.1"];
-    const [controls, next] = exportSheets(r);
+    const [, controls, next] = exportSheets(r, META);
     expect(controls!.header).toEqual([
       "Control",
       "OSCAL ID",
@@ -549,13 +614,18 @@ describe("exportSheets", () => {
       "Family",
       "Base control",
       "Lineage",
+      "Statement",
+      "Discussion",
+      "Link",
     ]);
-    expect(controls!.rows[0]!.at(-1)).toBe("Status: Withdrawn\nNew in 5.1");
-    expect(next!.name).toBe("Statement");
+    expect(controls!.rows[0]![5]).toBe("Status: Withdrawn\nNew in 5.1");
+    expect(next!.name).toBe("Parameters");
   });
 
   it("adds CISA's designation and If Applicable to the Zero Trust sheet", () => {
-    const zt = exportSheets(record()).find((s) => s.name === "Zero Trust")!;
+    const zt = exportSheets(record(), META).find(
+      (s) => s.name === "Zero Trust",
+    )!;
     expect(zt.header).toEqual([
       "Control",
       "Pillar",
@@ -583,7 +653,7 @@ describe("exportSheets", () => {
       },
     ];
     expect(
-      exportSheets(r)
+      exportSheets(r, META)
         .find((s) => s.name === "Zero Trust")!
         .rows[0]!.slice(4, 6),
     ).toEqual(["Unassigned", "Yes"]);
@@ -595,7 +665,7 @@ describe("exportSheets", () => {
       c.zeroTrust = c.zeroTrust?.map(
         ({ designation: _d, ifApplicable: _i, ...t }) => t,
       );
-    const zt = exportSheets(r).find((s) => s.name === "Zero Trust")!;
+    const zt = exportSheets(r, META).find((s) => s.name === "Zero Trust")!;
     expect(zt.header).toEqual([
       "Control",
       "Pillar",
@@ -616,7 +686,7 @@ describe("exportSheets", () => {
       objectives: [{ identifier: "AC-02a.[01]", text: "types are defined" }],
       methods: [{ method: "EXAMINE", text: "policy" }],
     };
-    const [, assessment] = exportSheets(r);
+    const [, , assessment] = exportSheets(r, META);
     expect(assessment!.name).toBe("Assessment");
     expect(assessment!.rows).toEqual([
       ["AC-02", "Objective", "AC-02a.[01]", "types are defined"],
@@ -651,14 +721,8 @@ describe("the XLSX layout", () => {
     c.statement!.parameters[0]!.values[0]!.value = long;
     c.zeroTrust![0]!.guidance = long;
     c.references![0]!.label = long;
-    const sheets = exportSheets(r);
-    for (const name of [
-      "Controls",
-      "Statement",
-      "Parameters",
-      "Zero Trust",
-      "References",
-    ]) {
+    const sheets = exportSheets(r, META);
+    for (const name of ["Controls", "Parameters", "Zero Trust", "References"]) {
       const cells = sheets.find((s) => s.name === name)!.rows.flat();
       expect(cells.some((v) => v?.length === EXCEL_CELL_LIMIT)).toBe(true);
       expect(cells.every((v) => (v?.length ?? 0) <= EXCEL_CELL_LIMIT)).toBe(
@@ -727,9 +791,9 @@ describe("the writers", () => {
   const isZip = (b: Buffer) => b.subarray(0, 2).toString() === "PK";
 
   it("writes an XLSX package with column widths and wrapped text", async () => {
-    const parts = unzipSync(new Uint8Array(await writeXlsx(record())));
+    const parts = unzipSync(new Uint8Array(await writeXlsx(record(), META)));
     const text = (path: string) => strFromU8(parts[path]!);
-    const rId = /<sheet [^>]*r:id="([^"]+)"[^>]*name="Statement"/.exec(
+    const rId = /<sheet [^>]*r:id="([^"]+)"[^>]*name="Controls"/.exec(
       text("xl/workbook.xml"),
     )![1]!;
     const target = new RegExp(`Id="${rId}"[^>]*Target="([^"]+)"`).exec(
@@ -743,29 +807,58 @@ describe("the writers", () => {
     );
   });
 
+  it("links each control to the app, keeping the address as the cell's text", async () => {
+    const parts = unzipSync(new Uint8Array(await writeXlsx(record(), META)));
+    const text = (path: string) => strFromU8(parts[path]!);
+    // Sheet 2 is Controls; its last column is the link, and a row a control.
+    const sheet = text("xl/worksheets/sheet2.xml");
+    const rels = text("xl/worksheets/_rels/sheet2.xml.rels");
+    expect(sheet).not.toContain("<f>");
+    expect(sheet).toMatch(
+      /<\/autoFilter><hyperlinks><hyperlink ref="[A-Z]+2" r:id="rIdX1"\/><hyperlink ref="[A-Z]+3" r:id="rIdX2"\/><\/hyperlinks><\/worksheet>$|<autoFilter [^>]*\/><hyperlinks><hyperlink ref="[A-Z]+2" r:id="rIdX1"\/><hyperlink ref="[A-Z]+3" r:id="rIdX2"\/><\/hyperlinks><\/worksheet>$/,
+    );
+    expect(rels).toContain(
+      'Id="rIdX2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://decoder.example.gov/control/AC-02?enh=01" TargetMode="External"',
+    );
+    // The About sheet links the export page from its value column.
+    expect(text("xl/worksheets/_rels/sheet1.xml.rels")).toContain(
+      'Target="https://decoder.example.gov/export"',
+    );
+  });
+
   it("adds header filters, repeated print titles and a document title to the XLSX", async () => {
     const r = record();
     r.catalog = "Catalog & <Co>";
-    const parts = unzipSync(new Uint8Array(await writeXlsx(r)));
+    const parts = unzipSync(new Uint8Array(await writeXlsx(r, META)));
     const text = (path: string) => strFromU8(parts[path]!);
-    const sheets = exportSheets(r);
+    const sheets = exportSheets(r, META);
     const workbook = text("xl/workbook.xml");
     sheets.forEach((s, i) => {
       const last = String.fromCharCode(64 + s.header.length);
-      const rows = s.rows.length + 1;
-      expect(text(`xl/worksheets/sheet${i + 1}.xml`)).toContain(
-        `</sheetData><autoFilter ref="A1:${last}${rows}"/>`,
-      );
+      // A note sits above the header, and both repeat on each printed page.
+      const head = s.note ? 2 : 1;
+      const rows = s.rows.length + head;
+      const sheet = text(`xl/worksheets/sheet${i + 1}.xml`);
+      const filter = `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${s.name}'!$A$${head}:$${last}$${rows}</definedName>`;
+      if (s.plain) {
+        expect(sheet).not.toContain("<autoFilter");
+        expect(workbook).not.toContain(filter);
+      } else {
+        expect(sheet).toContain(
+          `</sheetData><autoFilter ref="A${head}:${last}${rows}"/>`,
+        );
+        expect(workbook).toContain(filter);
+      }
       expect(workbook).toContain(
-        `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${s.name}'!$A$1:$${last}$${rows}</definedName>`,
-      );
-      expect(workbook).toContain(
-        `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${s.name}'!$1:$1</definedName>`,
+        `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${s.name}'!$1:$${head}</definedName>`,
       );
     });
+    expect(sheets.some((s) => s.note)).toBe(true);
     expect(workbook).not.toContain("<definedNames/>");
-    expect(text("docProps/core.xml")).toContain(
-      "<dc:title>Catalog &amp; &lt;Co&gt;</dc:title>",
+    const core = text("docProps/core.xml");
+    expect(core).toContain("<dc:title>Catalog &amp; &lt;Co&gt;</dc:title>");
+    expect(core).toContain(
+      '<dcterms:created xsi:type="dcterms:W3CDTF">2026-11-09T14:05:00Z</dcterms:created>',
     );
     expect(text("[Content_Types].xml")).toContain(
       'PartName="/docProps/core.xml"',
@@ -784,7 +877,7 @@ describe("the writers", () => {
       ],
     };
     r.controls[0]!.references![0]!.citation = "SP 800-207, §3";
-    const docx = await writeDocx(r);
+    const docx = await writeDocx(r, META);
     expect(isZip(docx)).toBe(true);
     const doc = strFromU8(
       unzipSync(new Uint8Array(docx))["word/document.xml"]!,
@@ -793,16 +886,54 @@ describe("the writers", () => {
     expect(doc).toContain(">Key<");
   });
 
+  it("opens the DOCX on a title page, links each control to the app and back to contents, and prints page numbers and the control", async () => {
+    const parts = unzipSync(new Uint8Array(await writeDocx(record(), META)));
+    const doc = strFromU8(parts["word/document.xml"]!);
+    const rels = strFromU8(parts["word/_rels/document.xml.rels"]!);
+    expect(doc).toContain(
+      'Exported: </w:t></w:r><w:r><w:t xml:space="preserve">2026-11-09 14:05 UTC',
+    );
+    expect(doc.match(/w:anchor="contents"/g)).toHaveLength(2);
+    expect(doc).toContain("Open AC-02(01) in the app");
+    expect(rels).toContain(
+      'Target="https://decoder.example.gov/control/AC-02?enh=01"',
+    );
+    // The title and contents pages carry the footer alone, with none on the title page.
+    expect(doc).toMatch(
+      /<w:sectPr><w:footerReference w:type="default" r:id="rIdF"\/>.*<w:titlePg\/><\/w:sectPr>/,
+    );
+    expect(strFromU8(parts["word/header1.xml"]!)).toContain(
+      'w:instr=" STYLEREF &quot;heading 2&quot; "',
+    );
+    expect(strFromU8(parts["word/footer1.xml"]!)).toMatch(
+      /Page .*w:instr=" PAGE ".* of .*w:instr=" NUMPAGES "/,
+    );
+    expect(strFromU8(parts["docProps/core.xml"]!)).toContain(
+      "<dc:subject>Example Catalog 1.0, version 1.0</dc:subject>",
+    );
+  });
+
+  it("leaves out the app links when the deployment sets no address", async () => {
+    const parts = unzipSync(
+      new Uint8Array(await writeDocx(record(), { ...META, appUrl: null })),
+    );
+    const doc = strFromU8(parts["word/document.xml"]!);
+    expect(doc).not.toContain("in the app</w:t>");
+    expect(doc).toContain(NO_APP_URL);
+  });
+
   it("writes a package whose links all resolve, escaping what XML cannot hold", async () => {
     const r = record();
     r.controls[0]!.name = 'Tags <b> & "quotes"\u0001';
-    const parts = unzipSync(new Uint8Array(await writeDocx(r)));
+    const parts = unzipSync(new Uint8Array(await writeDocx(r, META)));
     expect(Object.keys(parts).sort()).toEqual([
       "[Content_Types].xml",
       "_rels/.rels",
       "docProps/core.xml",
       "word/_rels/document.xml.rels",
       "word/document.xml",
+      "word/footer1.xml",
+      "word/header1.xml",
       "word/numbering.xml",
       "word/settings.xml",
       "word/styles.xml",
@@ -811,11 +942,11 @@ describe("the writers", () => {
     const rels = strFromU8(parts["word/_rels/document.xml.rels"]!);
     const all = (re: RegExp, text: string) =>
       [...text.matchAll(re)].map((m) => m[1]).sort();
-    expect(all(/w:anchor="([^"]+)"/g, doc)).toEqual(
+    expect([...new Set(all(/w:anchor="([^"]+)"/g, doc))]).toEqual(
       all(/w:bookmarkStart [^>]*w:name="([^"]+)"/g, doc),
     );
     expect([...new Set(all(/r:id="([^"]+)"/g, doc))]).toEqual(
-      all(/Id="(rIdL\d+)"/g, rels),
+      [...all(/Id="(rId[FH])"/g, rels), ...all(/Id="(rIdL\d+)"/g, rels)].sort(),
     );
     expect(doc).toContain(
       "AC-02 Tags &lt;b&gt; &amp; &quot;quotes&quot;</w:t>",
@@ -844,7 +975,7 @@ describe("the writers", () => {
       objectives: [],
       methods: [{ method: "Test", text: null }],
     };
-    const parts = unzipSync(new Uint8Array(await writeDocx(r)));
+    const parts = unzipSync(new Uint8Array(await writeDocx(r, META)));
     const doc = strFromU8(parts["word/document.xml"]!);
     const rels = strFromU8(parts["word/_rels/document.xml.rels"]!);
     expect(doc).toContain("AC-02 bad   end</w:t>");
@@ -858,7 +989,7 @@ describe("the writers", () => {
   it("writes each chosen field under the control's heading", async () => {
     const r = record();
     r.controls[0]!.lineage = ["Status: Withdrawn"];
-    const parts = unzipSync(new Uint8Array(await writeDocx(r)));
+    const parts = unzipSync(new Uint8Array(await writeDocx(r, META)));
     const doc = strFromU8(parts["word/document.xml"]!);
     for (const text of [
       "Status: Withdrawn",
@@ -877,7 +1008,7 @@ describe("the writers", () => {
       { id: "SC-37", name: null },
     ];
     const doc = strFromU8(
-      unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+      unzipSync(new Uint8Array(await writeDocx(r, META)))["word/document.xml"]!,
     );
     expect(doc).toContain(
       `<w:hyperlink w:anchor="${bookmarkFor("AC-02")}" w:history="1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t xml:space="preserve">AC-02 - Account Management</w:t>`,
@@ -893,7 +1024,9 @@ describe("the writers", () => {
     r.controls[0]!.zeroTrust = [];
     const doc = async () =>
       strFromU8(
-        unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+        unzipSync(new Uint8Array(await writeDocx(r, META)))[
+          "word/document.xml"
+        ]!,
       );
     expect(await doc()).not.toContain(NO_MATCHING_ROW);
     r.zeroTrustFiltered = true;
@@ -901,7 +1034,7 @@ describe("the writers", () => {
   });
 
   it("wires settings.xml in, in Word 2013's compatibility mode", async () => {
-    const parts = unzipSync(new Uint8Array(await writeDocx(record())));
+    const parts = unzipSync(new Uint8Array(await writeDocx(record(), META)));
     const text = (path: string) => strFromU8(parts[path]!);
     expect(text("[Content_Types].xml")).toContain(
       '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>',
@@ -918,7 +1051,7 @@ describe("the writers", () => {
     const r = record();
     r.controls[0]!.references![0]!.label = " ";
     const doc = strFromU8(
-      unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+      unzipSync(new Uint8Array(await writeDocx(r, META)))["word/document.xml"]!,
     );
     expect(doc).toMatch(
       /<w:hyperlink r:id="[^"]+"[^>]*>(?:(?!<\/w:hyperlink>).)*https:\/\/example\.gov\/zt<\/w:t>/,
@@ -929,7 +1062,7 @@ describe("the writers", () => {
     const r = record();
     r.controls = r.controls.slice(1);
     const doc = strFromU8(
-      unzipSync(new Uint8Array(await writeDocx(r)))["word/document.xml"]!,
+      unzipSync(new Uint8Array(await writeDocx(r, META)))["word/document.xml"]!,
     );
     const levels = [...doc.matchAll(/w:pStyle w:val="Heading(\d)"/g)].map((m) =>
       Number(m[1]),
@@ -945,7 +1078,7 @@ describe("the writers", () => {
   it("never skips a heading level", async () => {
     const r = record();
     r.datasets = [...EXPORT_DATASETS];
-    const parts = unzipSync(new Uint8Array(await writeDocx(r)));
+    const parts = unzipSync(new Uint8Array(await writeDocx(r, META)));
     const doc = strFromU8(parts["word/document.xml"]!);
     const levels = [...doc.matchAll(/w:pStyle w:val="Heading(\d)"/g)].map((m) =>
       Number(m[1]),
@@ -958,9 +1091,9 @@ describe("the writers", () => {
   });
 
   it("writes the same bytes for the same record", async () => {
-    expect((await writeDocx(record())).equals(await writeDocx(record()))).toBe(
-      true,
-    );
+    expect(
+      (await writeDocx(record(), META)).equals(await writeDocx(record(), META)),
+    ).toBe(true);
   });
 
   it("names bookmarks Word accepts", () => {
@@ -990,7 +1123,7 @@ describe("the DOCX lists", () => {
     const r = record();
     r.controls = r.controls.slice(0, 1);
     r.controls[0]!.statement = { text: statement, discussion, parameters: [] };
-    const zip = unzipSync(new Uint8Array(await writeDocx(r)));
+    const zip = unzipSync(new Uint8Array(await writeDocx(r, META)));
     return {
       doc: strFromU8(zip["word/document.xml"]!),
       numbering: strFromU8(zip["word/numbering.xml"]!),
@@ -1121,6 +1254,28 @@ describe("the DOCX lists", () => {
       "Do it.\na. Review [Low: annually] and report",
     );
     expect(params).toContain(">Review [Low: annually] and report</w:t>");
+  });
+
+  it("gives an item with no text of its own its values, inside the item", async () => {
+    const { doc, numbering } = await parts(
+      "h. Notify within:\n  1.\n    Low: 1 day\n    High: 8 hours\n  2. Then this\n    Low: x",
+    );
+    expect(
+      rendered(doc, numbering)
+        .filter((i) => i.label)
+        .map((i) => `${i.level}${i.label}${i.text}`),
+    ).toEqual(["0h.Notify within:", "11.Low: 1 day", "12.Then this"]);
+    expect(doc).toContain(
+      '<w:r><w:t xml:space="preserve">Low: 1 day</w:t></w:r><w:r><w:br/></w:r><w:r><w:t xml:space="preserve">High: 8 hours</w:t></w:r></w:p>',
+    );
+    // Only the textless item takes its values; an item with text keeps them as paragraphs.
+    expect(doc).not.toContain(
+      '<w:ind w:left="864"/></w:pPr><w:r><w:t xml:space="preserve">High',
+    );
+    expect(doc).toContain(
+      '<w:p><w:pPr><w:ind w:left="864"/></w:pPr><w:r><w:t xml:space="preserve">Low: x</w:t>',
+    );
+    expect(doc).not.toMatch(/<\/w:numPr><\/w:pPr><\/w:p>/);
   });
 
   it("bullets a discussion's dash lines, one list for each run", async () => {

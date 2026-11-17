@@ -21,6 +21,8 @@ async function focusOutline(target: Locator) {
       width: style.outlineWidth,
       color: style.outlineColor,
       offset: style.outlineOffset,
+      // The cake's zoom (1 outside it): a chip's ring is 2px divided by it.
+      scale: parseFloat(style.getPropertyValue("--cake-scale")) || 1,
     };
   });
 }
@@ -38,7 +40,16 @@ test("a focused chip on the cake shows the 2px focus outline", async ({
 }) => {
   await page.goto("/");
   const chip = page.locator('[id^="family-"] a[href^="/control/"]').first();
-  expect(await focusOutline(chip)).toEqual(EXPECTED);
+  // The cake is drawn zoomed out, so the ring is set at 2px divided by the zoom and
+  // renders at 2px on screen.
+  const { width, offset, scale, ...rest } = await focusOutline(chip);
+  expect(rest).toEqual({ ...EXPECTED, width: undefined, offset: undefined });
+  // Chrome rounds an outline to whole CSS pixels before the zoom shrinks it, so on
+  // screen it lands within one zoomed pixel under 2px.
+  for (const length of [width, offset]) {
+    expect(parseFloat(length) * scale).toBeGreaterThan(2 - scale - 0.01);
+    expect(parseFloat(length) * scale).toBeLessThanOrEqual(2.01);
+  }
 });
 
 test("a focused tab in the control modal shows the 2px focus outline", async ({
@@ -46,5 +57,6 @@ test("a focused tab in the control modal shows the 2px focus outline", async ({
 }) => {
   await page.goto("/control/AC-02");
   const tab = page.getByRole("button", { name: /^Base( |,|$)/ });
-  expect(await focusOutline(tab)).toEqual(EXPECTED);
+  // Outside the cake, so at its own size: no zoom to divide by.
+  expect(await focusOutline(tab)).toEqual({ ...EXPECTED, scale: 1 });
 });

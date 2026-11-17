@@ -2,7 +2,10 @@
 
 import { X } from "lucide-react";
 
+import { useRef } from "react";
+
 import { useCloseToCake } from "./useCloseToCake";
+import { useDialogFocus } from "./useDialogFocus";
 import { useEscape } from "./useEscape";
 
 /**
@@ -14,10 +17,13 @@ import { useEscape } from "./useEscape";
 export default function ControlModalLoading() {
   const close = useCloseToCake();
   useEscape(close);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef);
 
   return (
-    <div className="animate-in fade-in bg-scrim/70 fixed inset-0 z-50 flex items-stretch p-4 backdrop-blur-sm duration-200 md:p-6">
+    <div className="bg-scrim/70 fixed inset-0 z-50 flex items-stretch p-4 backdrop-blur-sm md:p-6">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Loading control"
@@ -27,6 +33,7 @@ export default function ControlModalLoading() {
         <button
           type="button"
           onClick={close}
+          data-dialog-start
           aria-label="Close"
           className="text-ink-muted hover:bg-surface-muted hover:text-ink absolute top-6 right-6 rounded-full p-1 transition-colors"
         >

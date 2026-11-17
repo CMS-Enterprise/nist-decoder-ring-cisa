@@ -25,7 +25,15 @@ vi.mock("../useDecoderQuery", async () => {
       const [q, setQ] = React.useState("");
       const [, rerender] = React.useState(0);
       return {
-        query: { q },
+        query: {
+          pillar: [],
+          maturity: [],
+          designation: [],
+          baseline: [],
+          family: [],
+          status: [],
+          q,
+        },
         // A fresh function on every render, and every call re-renders.
         setQuery: (next: { q: string }) => {
           // Stop a runaway loop with a readable failure instead of exhausting memory.

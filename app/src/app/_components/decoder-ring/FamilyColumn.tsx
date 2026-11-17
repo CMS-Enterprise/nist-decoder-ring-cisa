@@ -5,7 +5,13 @@ import Link from "next/link";
 import { product } from "~/config/product";
 
 import type { ControlFamily } from "./LayerCakeVisualization";
-import { matchesQuery, type FilterQuery } from "./filterPredicate";
+import { splitControlId } from "~/lib/control-id";
+import {
+  matchesQuery,
+  matchingEnhancements,
+  ownRowPasses,
+  type FilterQuery,
+} from "./filterPredicate";
 
 interface FamilyColumnProps {
   family: ControlFamily;
@@ -118,27 +124,47 @@ export default function FamilyColumn({
             // its height + frozen position, matches stay vivid).
             const dimmed =
               isActive && !reflow && !matchesQuery(control, query, textMatches);
+            // The ring divides by the cake's zoom (LayerCakeVisualization sets
+            // --cake-scale) so it stays 2px on screen at the overview zoom.
             const baseClass =
-              "cursor-pointer truncate rounded-md border px-3 py-3 text-center text-sm font-bold shadow-md transition-all";
+              "cursor-pointer truncate rounded-md border px-3 py-3 text-center text-sm font-bold shadow-md transition-all focus-visible:[outline-width:calc(2px/var(--cake-scale,1))] focus-visible:[outline-offset:calc(2px/var(--cake-scale,1))]";
             const state = ztStateOf(control.status);
+            // A control a Zero Trust filter matches only through an enhancement
+            // opens on that enhancement's tab.
+            const through =
+              isActive && !dimmed && !ownRowPasses(control, query)
+                ? matchingEnhancements(control, query)[0]
+                : undefined;
 
             // A link, so a reader can open a control in a new tab or copy its address.
             // No prefetch: the cake shows a few hundred chips, and each would ask the
             // server for its control on sight. Not draggable, so pressing and dragging
             // on a chip pans the cake rather than dragging the link; Firefox also needs
             // the drag start cancelled.
+            //
+            // A dimmed chip is inert, not only dimmed: it takes no focus or clicks and
+            // leaves the accessibility tree, as the filter says it is out of play. That is
+            // also why its low contrast passes, since 1.4.3 exempts inactive components.
+            // "Collapse to matches" removes these chips for a reader who wants them gone.
             return (
               <Link
                 key={control.id}
-                href={hrefFor(control.id)}
+                href={hrefFor(through ?? control.id)}
                 prefetch={false}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
+                inert={dimmed}
+                // For a closing dialog to give focus back to (chipFor).
+                data-control-chip={control.id}
                 className={`${baseClass} ${state.chip} ${dimmed ? "opacity-30 grayscale" : ""}`}
                 title={control.name}
                 // Named in full rather than through a visually hidden suffix, whose
                 // spacing the name computation does not keep.
-                aria-label={`${control.id}, ${state.label ?? product.baselineChipLabel}`}
+                aria-label={`${control.id}, ${state.label ?? product.baselineChipLabel}${
+                  through
+                    ? `, matches through enhancement (${splitControlId(through).enhancement})`
+                    : ""
+                }`}
               >
                 <span aria-hidden="true" className="mr-1.5 text-xs">
                   {state.glyph}

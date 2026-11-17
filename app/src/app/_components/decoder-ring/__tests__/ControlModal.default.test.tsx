@@ -144,8 +144,7 @@ function makeControl(overrides: Partial<NistControl> = {}): NistControl {
     name: "Account Management",
     status: "zero-trust-aligned",
     family: "AC",
-    pillars: ["IDENTITY"],
-    maturities: ["ADVANCED"],
+    zeroTrust: [{ pillar: "IDENTITY", maturity: "ADVANCED" }],
     functions: ["Identity Management"],
     ztMapping: {
       pillar: "IDENTITY",
@@ -587,6 +586,61 @@ describe("ControlModal — assessment procedures section", () => {
       />,
     );
     expect(screen.queryByText("Assessment Procedures")).toBeNull();
+  });
+
+  it("names the enhancements the pillar and maturity filters match, and marks their tabs", () => {
+    const optimal = {
+      pillar: "DATA",
+      function: "Data Encryption",
+      maturity: "OPTIMAL",
+      guidance: "",
+    };
+    mockUseQuery = vi.fn().mockReturnValue({
+      data: makeQueryResponse({}, [
+        makeDetail({
+          id: "AC-02(01)",
+          ztMapping: { ...optimal, affinities: [] },
+        }),
+        makeDetail({ id: "AC-02(02)" }),
+        makeDetail({
+          id: "AC-02(03)",
+          ztMapping: {
+            ...optimal,
+            maturity: "INITIAL",
+            affinities: [
+              { ...optimal, maturity: "INITIAL" },
+              { ...optimal, pillar: "IDENTITY" },
+            ],
+          },
+        }),
+      ]),
+      isLoading: false,
+    });
+    render(<ControlModal control={makeControl()} onClose={vi.fn()} />, {
+      searchParams: "?maturity=OPTIMAL",
+    });
+    expect(
+      screen.getByText(
+        /Your Zero Trust filters match enhancements \(01\) and \(03\)/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^\(01\) ZT/ }),
+    ).toHaveAccessibleName("(01) ZT, Zero Trust mapped, matches your filters");
+    expect(
+      screen.getByRole("button", { name: /^\(03\) ZT/ }),
+    ).toHaveAccessibleName("(03) ZT, Zero Trust mapped, matches your filters");
+  });
+
+  it("names no enhancement without a pillar or maturity filter", () => {
+    mockUseQuery = vi.fn().mockReturnValue({
+      data: makeQueryResponse({}, [makeDetail({ id: "AC-02(01)" })]),
+      isLoading: false,
+    });
+    render(<ControlModal control={makeControl()} onClose={vi.fn()} />, {
+      searchParams: "?baseline=HIGH",
+    });
+    expect(screen.queryByText(/Your Zero Trust filters match/)).toBeNull();
   });
 
   it("omits the section on the pre-load fallback, which carries no assessment field", () => {

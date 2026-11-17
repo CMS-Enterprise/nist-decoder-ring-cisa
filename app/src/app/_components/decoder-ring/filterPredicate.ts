@@ -10,14 +10,79 @@ export interface FilterableControl {
   name: string;
   status: string; // "zero-trust-aligned" | "zt-aligned-with-enhancements" | "zt-via-enhancements" | "compliance"
   family: string; // family code, e.g. "AC"
-  pillars: string[];
-  maturities: string[];
-  /** CISA's designations across the control's Zero Trust tuples (KEY, SUPPORTING, INFORMATIVE). */
-  designations?: string[];
+  /** Its own Zero Trust rows. */
+  zeroTrust: ZeroTrustRow[];
+  /** Its enhancements' Zero Trust rows and baselines, in catalog order, so a facet can match through them. */
+  enhancements?: Array<{
+    id: string;
+    name?: string;
+    zeroTrust: ZeroTrustRow[];
+    baselines?: string[];
+  }>;
   /** The catalog baselines that include the control, as the catalog spells them. */
   baselines?: string[];
   /** Every baseline that includes at least one of the control's enhancements. */
   enhancementBaselines?: string[];
+}
+
+/** One Zero Trust row: a pillar at a maturity, with CISA's designation. A mapping with no affinity rows has one row naming its pillars joined. */
+export interface ZeroTrustRow {
+  pillar: string;
+  maturity: string;
+  designation?: string | null;
+}
+
+/** The facets a Zero Trust row carries. */
+type RowFacets = Pick<FilterQuery, "pillar" | "maturity" | "designation">;
+
+/** A row passes the pillar, maturity and designation facets when it is in every active one. */
+export const rowPasses = (row: ZeroTrustRow, query: RowFacets): boolean =>
+  (!query.pillar.length ||
+    row.pillar.split(", ").some((p) => query.pillar.includes(p))) &&
+  (!query.maturity.length || query.maturity.includes(row.maturity)) &&
+  (!query.designation.length ||
+    (!!row.designation && query.designation.includes(row.designation)));
+
+const ztFacetActive = (query: RowFacets) =>
+  query.pillar.length > 0 ||
+  query.maturity.length > 0 ||
+  query.designation.length > 0;
+
+/** True when one of the control's own rows passes the row facets. */
+export const ownRowPasses = (
+  control: Pick<FilterableControl, "zeroTrust">,
+  query: RowFacets,
+): boolean =>
+  !ztFacetActive(query) || control.zeroTrust.some((r) => rowPasses(r, query));
+
+/**
+ * The enhancements that pass the row facets on a row of their own and the baseline facet
+ * on their own baselines, as the export filters them; none when no row facet is active.
+ */
+export const matchingEnhancements = (
+  control: Pick<FilterableControl, "enhancements">,
+  query: RowFacets & Pick<FilterQuery, "baseline">,
+): string[] =>
+  ztFacetActive(query)
+    ? (control.enhancements ?? [])
+        .filter(
+          (e) =>
+            e.zeroTrust.some((r) => rowPasses(r, query)) &&
+            inBaseline(e.baselines ?? [], query),
+        )
+        .map((e) => e.id)
+    : [];
+
+/** True when the baselines pass the baseline facet; "in no baseline" is an empty list. */
+function inBaseline(
+  baselines: string[],
+  query: Pick<FilterQuery, "baseline">,
+): boolean {
+  if (!query.baseline.length) return true;
+  const has = baselines.map(baselineKey);
+  return query.baseline.some((b) =>
+    b === NO_BASELINE ? has.length === 0 : has.includes(b),
+  );
 }
 
 /** URL value for the baseline facet's "in no baseline" option. */
@@ -61,41 +126,28 @@ export function normalizeControlId(value: string): string {
 
 /**
  * Facet match: AND across dimensions, OR within a dimension. An empty dimension is no
- * constraint. A compliance-only control (no pillars/maturities) naturally fails an
- * active pillar/maturity facet — selecting a ZT facet hides pure-compliance controls.
+ * constraint. The pillar, maturity and designation facets match on one row: a control
+ * passes when one of its own rows is in every active one, or an enhancement passes them
+ * and the baseline facet itself, so one control or enhancement meets them all. A
+ * compliance-only control has no rows, so a ZT facet hides it.
  */
 export function passesFacets(
   control: FilterableControl,
   query: FilterQuery,
 ): boolean {
+  const own = ownRowPasses(control, query);
+  if (!own && matchingEnhancements(control, query).length === 0) return false;
+  // Inclusive: a control matches a baseline when it or any of its enhancements is in
+  // it, and is "in no baseline" only when neither it nor any enhancement is in one. A
+  // match through an enhancement has already met the baseline facet itself.
   if (
-    query.pillar.length &&
-    !query.pillar.some((p) => control.pillars.includes(p))
+    own &&
+    !inBaseline(
+      [...(control.baselines ?? []), ...(control.enhancementBaselines ?? [])],
+      query,
+    )
   )
     return false;
-  if (
-    query.maturity.length &&
-    !query.maturity.some((m) => control.maturities.includes(m))
-  )
-    return false;
-  // A control matches when any of its tuples carries a selected designation.
-  if (
-    query.designation.length &&
-    !query.designation.some((d) => (control.designations ?? []).includes(d))
-  )
-    return false;
-  if (query.baseline.length) {
-    // Inclusive: a control matches a baseline when it or any of its enhancements is in
-    // it, and is "in no baseline" only when neither it nor any enhancement is in one.
-    const has = [
-      ...(control.baselines ?? []),
-      ...(control.enhancementBaselines ?? []),
-    ].map(baselineKey);
-    const match = query.baseline.some((b) =>
-      b === NO_BASELINE ? has.length === 0 : has.includes(b),
-    );
-    if (!match) return false;
-  }
   if (query.family.length && !query.family.includes(control.family))
     return false;
   if (query.status.length && !query.status.includes(control.status))
@@ -139,8 +191,10 @@ export function isIdentifierQuery(text: string): boolean {
 
 /**
  * Client-side text match. An identifier-shaped query — a family code with a number
- * ("AC-2", "ac02", "AC-02(01)") or a bare family code ("AC") — matches the control NUMBER
- * by prefix only. Any other query is free text, matched against the control name.
+ * ("AC-2", "ac02", "AC-02(01)") or a bare family code ("AC") — matches the control NUMBER:
+ * by prefix until the number is whole (two digits, "AC-02", which is not AC-24), then
+ * whole. A typed enhancement matches itself and its base. Any other query is free text,
+ * matched against the control name.
  *
  * Splitting these is deliberate: a bare substring match let "AC" match every control
  * whose *name* merely contained the letters "ac" (SC-21 "…Caching Resolver", "…Backup",
@@ -156,7 +210,7 @@ export function isIdentifierQuery(text: string): boolean {
  * was built to prevent.
  */
 export function matchesText(
-  control: FilterableControl,
+  control: Pick<FilterableControl, "id" | "name">,
   text: string,
   serverMatches?: ReadonlySet<string>,
 ): boolean {
@@ -172,7 +226,25 @@ export function matchesText(
   // because the number is stored zero-padded. The prefix rule below is the whole
   // reason the number/name split exists; letting a substring match pre-empt it undoes it.
   if (isIdQuery) {
-    return normalizeControlId(control.id).startsWith(normalizeControlId(q));
+    const id = normalizeControlId(control.id);
+    const key = normalizeControlId(q);
+    // A typed enhancement, even before its number ("AC-02("), names its base whole, and
+    // the base matches too, so the diagram shows where it sits. Its number matches whole
+    // once it has two digits or a closing parenthesis, so "AC-02(01)" is not also
+    // AC-02(11); before that it matches by the digits typed, so "AC-02(1" still offers
+    // (10) to (19).
+    const [idBase, idEnh] = id.split(".");
+    if (/[.(]$/.test(q)) return idBase === key;
+    if (!key.includes(".")) {
+      const [, digits = ""] = /^[a-z]{2}[-\s]?(\d+)/.exec(q) ?? [];
+      return digits.length >= 2 ? idBase === key : id.startsWith(key);
+    }
+    const [keyBase, keyEnh] = key.split(".");
+    if (idBase !== keyBase) return false;
+    if (idEnh === undefined) return true;
+    const [, digits = "", closed] = /[.(](\d+)(\))?/.exec(q) ?? [];
+    if (digits.length >= 2 || closed) return idEnh === keyEnh;
+    return digits === "0" ? idEnh.length === 1 : idEnh.startsWith(digits);
   }
   // Free text only: the server has searched prose this dataset does not carry, so take
   // its verdict or the local name match. Absent a server answer — under two characters,
@@ -198,6 +270,44 @@ export function matchesQuery(
   return (
     passesFacets(control, query) && matchesText(control, query.q, serverMatches)
   );
+}
+
+/** An enhancement the search lists as a result of its own. */
+export interface EnhancementResult {
+  id: string;
+  name: string;
+  base: string;
+}
+
+/**
+ * The enhancements search lists under a pillar, maturity or designation filter, in catalog
+ * order: each that matches the filters through `matchingEnhancements`, of a base the
+ * filters show, when its own number or name matches the text or, for free text, its base
+ * is a search hit. An identifier query never takes the server's hits, as `matchesText`
+ * explains.
+ *
+ * So search can list more than the diagram shows: free text lists an enhancement on its
+ * own name while its base, whose name does not match, is dimmed ("compil" lists AU-02(01)
+ * Compilation under a dimmed AU-02).
+ */
+export function enhancementResults(
+  controls: readonly FilterableControl[],
+  query: FilterQuery,
+  hitIds: ReadonlySet<string>,
+): EnhancementResult[] {
+  if (!ztFacetActive(query)) return [];
+  const freeText = !isIdentifierQuery(query.q);
+  return controls.flatMap((control) => {
+    if (!passesFacets(control, query)) return [];
+    const matched = new Set(matchingEnhancements(control, query));
+    return (control.enhancements ?? []).flatMap((e) => {
+      const result = { id: e.id, name: e.name ?? "", base: control.id };
+      return matched.has(e.id) &&
+        ((freeText && hitIds.has(control.id)) || matchesText(result, query.q))
+        ? [result]
+        : [];
+    });
+  });
 }
 
 /** True when any facet or the search box is active. */

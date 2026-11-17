@@ -118,6 +118,8 @@ export interface ExportControl {
 export interface ExportRecord {
   /** The catalog's own display label. */
   catalog: string;
+  /** The catalog's version, as it names it. */
+  catalogVersion: string;
   /** The catalog version it was read from; a cached file is keyed by it. */
   versionId: string;
   datasets: ExportDataset[];

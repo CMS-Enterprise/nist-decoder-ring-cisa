@@ -90,20 +90,20 @@ afterAll(async () => {
 // someone confirms every client can handle the new field.
 const BRIDGE_CONTROL_KEYS = [
   "baselines",
-  "designations",
   "enhancementBaselines",
+  "enhancements",
   "family",
   "functions",
   "id",
-  "maturities",
   "name",
   "oscalId",
-  "pillars",
   "status",
+  "zeroTrust",
   "ztMapping",
 ];
 // Alphabetical, because keysOf() sorts. The rename from arsLinks/cmsDiscussion
 // to nistLinks/discussion moved two entries, so the literal is re-sorted to match.
+const BRIDGE_ENHANCEMENT_KEYS = ["baselines", "id", "name", "zeroTrust"];
 const DETAIL_KEYS = [
   "assessment",
   "assessmentFrequency",
@@ -276,6 +276,10 @@ describe("getBridgeData against the seeded catalog", () => {
       // in the key set either way. That is part of the contract.
       expect(keysOf(controls[0]!)).toEqual(BRIDGE_CONTROL_KEYS);
     }
+    const enhanced = [...byStatus.values()]
+      .flat()
+      .find((c) => c.enhancements.length > 0)!;
+    expect(keysOf(enhanced.enhancements[0]!)).toEqual(BRIDGE_ENHANCEMENT_KEYS);
   });
 
   it("carries each base control's baselines for the baseline filter", async () => {
@@ -341,12 +345,15 @@ describe("getBridgeData against the seeded catalog", () => {
     // therefore an unfilterable control, and only a real driver round-trips the
     // actual enum NAME to check.
     const { families } = await caller.decoder.getBridgeData();
-    const pillars = new Set(
-      families.flatMap((f) => f.controls.flatMap((c) => c.pillars)),
+    const rows = families.flatMap((f) =>
+      f.controls.flatMap((c) => [
+        ...c.zeroTrust,
+        ...c.enhancements.flatMap((e) => e.zeroTrust),
+      ]),
     );
-    const maturities = new Set(
-      families.flatMap((f) => f.controls.flatMap((c) => c.maturities)),
-    );
+    // A mapping with no affinity rows names its pillars joined.
+    const pillars = new Set(rows.flatMap((r) => r.pillar.split(", ")));
+    const maturities = new Set(rows.map((r) => r.maturity));
     for (const p of pillars) expect(PILLAR_VALUES).toContain(p);
     for (const m of maturities) expect(MATURITY_VALUES).toContain(m);
     // Pin the set sizes so an empty result can never masquerade as a passing

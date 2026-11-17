@@ -55,3 +55,6 @@ yarn-error.log*
 # frostfall: the pinned binary make _install-frostfall fetches, and the scan's report
 /.frostfall/
 /frostfall-report/
+
+# emberfall: the pinned binary make _install-emberfall fetches
+/.emberfall/

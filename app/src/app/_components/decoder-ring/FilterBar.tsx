@@ -11,29 +11,17 @@ import {
   STATUS_VALUES,
 } from "./useDecoderQuery";
 import { NO_BASELINE, baselineKey } from "./filterPredicate";
+import {
+  DESIGNATION_LABELS,
+  MATURITY_LABELS,
+  PILLAR_LABELS,
+  STATUS_LABELS,
+} from "./facetLabels";
 import { useDismissibleDetails } from "./useDismissibleDetails";
 import { product } from "~/config/product";
 import { STANDARD_SLOTS } from "~/config/product-slots";
 import { RAW_BASELINE_LABEL } from "./statement";
 
-const PILLAR_LABELS: Record<string, string> = {
-  IDENTITY: "Identity",
-  DEVICES: "Devices",
-  NETWORKS: "Networks",
-  APPLICATIONS: "Apps & Workloads",
-  DATA: "Data",
-};
-const MATURITY_LABELS: Record<string, string> = {
-  TRADITIONAL: "Traditional",
-  INITIAL: "Initial",
-  ADVANCED: "Advanced",
-  OPTIMAL: "Optimal",
-};
-const DESIGNATION_LABELS: Record<string, string> = {
-  KEY: "Key",
-  SUPPORTING: "Supporting",
-  INFORMATIVE: "Informative",
-};
 const BASELINE_LABELS: Record<string, string> = {
   ...Object.fromEntries(
     product.catalogBaselines.map((b) => [
@@ -42,12 +30,6 @@ const BASELINE_LABELS: Record<string, string> = {
     ]),
   ),
   [NO_BASELINE]: product.baselineFacetNone,
-};
-const STATUS_LABELS: Record<string, string> = {
-  "zero-trust-aligned": "ZT Aligned",
-  "zt-aligned-with-enhancements": "ZT Aligned + Enhancements",
-  "zt-via-enhancements": "ZT Enhancements",
-  compliance: product.baselineChipLabel,
 };
 
 type FacetKey =

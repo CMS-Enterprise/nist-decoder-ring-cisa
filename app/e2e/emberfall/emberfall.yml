@@ -1,0 +1,170 @@
+# HTTP checks for the route handlers, run by e2e/http.spec.ts against the built app on the
+# seeded database. ${BASE_URL} is the app's address, filled in by the spec before the run.
+# Every request has an id: the spec counts them to make sure emberfall ran each one.
+#
+# emberfall compares a JSON body by the keys listed here and ignores any others (a list
+# must match in length and order), and a header by its exact value. Start each request
+# with its id and use only emberfall's keys, one per line: emberfall ignores any other key,
+# so a misspelled `expect`, `status` or `headers` would turn its check off. The spec fails
+# on both.
+
+tests:
+  # Health check.
+  - id: health
+    url: "${BASE_URL}/api/health"
+    method: GET
+    expect:
+      status: 200
+      body:
+        json:
+          status: ok
+
+  # Export: the two files, a selection the procedure refuses, and the empty lists the
+  # export page writes.
+  # The file name carries the day, so route.test.ts checks it with a fixed clock.
+  - id: exportXlsx
+    url: "${BASE_URL}/api/export"
+    method: GET
+    expect:
+      status: 200
+      headers:
+        content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+  - id: exportDocx
+    url: "${BASE_URL}/api/export?format=docx"
+    method: GET
+    expect:
+      status: 200
+      headers:
+        content-type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+  - id: exportRefusedSelection
+    url: "${BASE_URL}/api/export?pick=ZZ-99"
+    method: GET
+    expect:
+      status: 400
+      body:
+        json:
+          error: No control matches ZZ-99.
+
+  - id: exportEmptyLists
+    url: "${BASE_URL}/api/export?data=&fields="
+    method: GET
+    expect:
+      status: 200
+      headers:
+        content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+  # Proxy: a percent-encoded control id redirects to its stored form, with the query
+  # rebuilt as the page's own redirect builds it. Redirects are not followed, so each
+  # check sees the 307 and its Location.
+  - id: proxyEncodedHyphen
+    url: "${BASE_URL}/control/AC%2D02"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/AC-02
+
+  - id: proxyEncodedLetter
+    url: "${BASE_URL}/control/%41C-02"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/AC-02
+
+  - id: proxyEncodedEnhancement
+    url: "${BASE_URL}/control/SC-37%2801%29"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/SC-37(01)
+
+  - id: proxyQueryRebuilt
+    url: "${BASE_URL}/control/AC%2D02?pillar=IDENTITY,DATA&utm_source=x&enh=1"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/AC-02?pillar=IDENTITY,DATA&enh=1
+
+  - id: proxyItemKept
+    url: "${BASE_URL}/control/AC%2D02?item=k"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/AC-02?item=k
+
+  - id: proxyItemDropped
+    url: "${BASE_URL}/control/AC%2D02?item=%3Cb%3E"
+    method: GET
+    expect:
+      status: 307
+      headers:
+        location: /control/AC-02
+
+  - id: proxyPassesStoredId
+    url: "${BASE_URL}/control/AC-02"
+    method: GET
+    expect:
+      status: 200
+
+  - id: proxyPassesNonId
+    url: "${BASE_URL}/control/%3Cb%3E"
+    method: GET
+    expect:
+      status: 404
+
+  # tRPC handler: a query's result, invalid input as a 400 with the Zod error, and a POST
+  # that reaches tRPC. Every procedure is a query, so tRPC itself answers that POST with
+  # 405; Next would answer a method the route does not export without the tRPC body.
+  - id: trpcQuery
+    url: "${BASE_URL}/api/trpc/decoder.getActiveVersion"
+    method: GET
+    expect:
+      status: 200
+      body:
+        json:
+          result:
+            data:
+              json:
+                id: nist_r520
+                catalogKey: nist-800-53-r5
+
+  - id: trpcInvalidInput
+    url: "${BASE_URL}/api/trpc/decoder.searchControls?input=%7B%22json%22%3A%7B%22q%22%3A%22x%22%7D%7D"
+    method: GET
+    expect:
+      status: 400
+      body:
+        json:
+          error:
+            json:
+              data:
+                code: BAD_REQUEST
+                httpStatus: 400
+                path: decoder.searchControls
+                zodError:
+                  fieldErrors:
+                    q:
+                      - "Too small: expected string to have >=2 characters"
+
+  - id: trpcPost
+    url: "${BASE_URL}/api/trpc/decoder.searchControls"
+    method: POST
+    body:
+      json:
+        json:
+          q: account
+    expect:
+      status: 405
+      body:
+        json:
+          error:
+            json:
+              data:
+                code: METHOD_NOT_SUPPORTED
+                httpStatus: 405

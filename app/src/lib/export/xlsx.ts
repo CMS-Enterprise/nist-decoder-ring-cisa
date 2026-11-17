@@ -4,6 +4,12 @@ import writeXlsxFile, {
   type SheetData,
 } from "write-excel-file/node";
 
+import {
+  aboutRows,
+  controlLink,
+  corePropertiesXml,
+  type ExportMeta,
+} from "./about";
 import { cisaLabels, type ExportRecord } from "./record";
 import { xml } from "./xml";
 
@@ -13,15 +19,25 @@ export interface ExportSheet {
   name: string;
   header: string[];
   rows: Cell[][];
+  /** A line above the header saying what the sheet is for. */
+  note?: string;
+  /** The column whose web addresses open as links. */
+  linkColumn?: number;
+  /** A sheet to read rather than sort: no filter on its header. */
+  plain?: boolean;
 }
 
 /**
  * One worksheet per dataset, each row led by the control's id so sheets join on it.
- * "Controls" always comes first: the selection itself, one row per control, with a
- * column for each single-valued field chosen. Frequency and related controls, having
- * several, get a sheet each.
+ * "About" comes first, saying what the file is, then "Controls": the selection itself,
+ * one row per control, with a column for each single-valued field chosen and the
+ * statement and discussion. Frequency and related controls, having several, get a sheet
+ * each.
  */
-export function exportSheets(record: ExportRecord): ExportSheet[] {
+export function exportSheets(
+  record: ExportRecord,
+  meta: ExportMeta,
+): ExportSheet[] {
   const { controls, datasets, fields } = record;
   const columns: Array<[string, (c: (typeof controls)[number]) => Cell]> = [
     ["Control", (c) => c.id],
@@ -39,11 +55,26 @@ export function exportSheets(record: ExportRecord): ExportSheet[] {
       "Lineage",
       (c) => (c.lineage?.length ? c.lineage.join("\n") : null),
     ]);
+  if (datasets.includes("statement"))
+    columns.push(
+      ["Statement", (c) => c.statement?.text ?? null],
+      ["Discussion", (c) => c.statement?.discussion ?? null],
+    );
+  const { appUrl } = meta;
+  if (appUrl) columns.push(["Link", (c) => controlLink(appUrl, c.id)]);
   const sheets: ExportSheet[] = [
+    {
+      name: "About",
+      header: ["About this export", ""],
+      rows: aboutRows(record, meta).map((r) => [r.label, r.value]),
+      linkColumn: 1,
+      plain: true,
+    },
     {
       name: "Controls",
       header: columns.map(([h]) => h),
       rows: controls.map((c) => columns.map(([, cell]) => cell(c))),
+      ...(appUrl ? { linkColumn: columns.length - 1 } : {}),
     },
   ];
   if (fields.includes("frequency")) {
@@ -75,15 +106,6 @@ export function exportSheets(record: ExportRecord): ExportSheet[] {
     });
   }
   if (datasets.includes("statement")) {
-    sheets.push({
-      name: "Statement",
-      header: ["Control", "Statement", "Discussion"],
-      rows: controls.map((c) => [
-        c.id,
-        c.statement?.text ?? null,
-        c.statement?.discussion ?? null,
-      ]),
-    });
     const parameters = controls.flatMap((c) =>
       (c.statement?.parameters ?? []).flatMap((p) =>
         p.values.map((v) => [c.id, p.label, v.baselines.join(", "), v.value]),
@@ -93,6 +115,7 @@ export function exportSheets(record: ExportRecord): ExportSheet[] {
     if (parameters.length) {
       sheets.push({
         name: "Parameters",
+        note: "Each organization-defined value, per baseline, in one place: a row for each control's parameter value.",
         header: ["Control", "Parameter", "Baselines", "Value"],
         rows: parameters,
       });
@@ -244,24 +267,46 @@ export function rowHeight(
   return lines > 1 ? Math.min(lines * LINE_HEIGHT, MAX_ROW_HEIGHT) : undefined;
 }
 
-export async function writeXlsx(record: ExportRecord): Promise<Buffer> {
-  const exported = exportSheets(record);
+// Excel opens a link of at most 2,079 characters; a longer address stays text.
+const MAX_LINK = 2_079;
+/** Whether a cell in a sheet's link column becomes a link: a web address Excel can open. */
+const opensAsLink = (s: ExportSheet, i: number, value: string) =>
+  i === s.linkColumn && /^https?:\/\//i.test(value) && value.length <= MAX_LINK;
+
+export async function writeXlsx(
+  record: ExportRecord,
+  meta: ExportMeta,
+): Promise<Buffer> {
+  const exported = exportSheets(record, meta);
   const sheets: Sheet<Buffer>[] = exported.map((s) => {
     const layout = columnLayout(s);
     // Top-aligned, so a row a wrapped cell makes tall still reads from its first line.
     const rows: SheetData = s.rows.map((r) => {
       const height = rowHeight(r, layout);
-      return r.map((value, i) =>
-        value === null
-          ? null
-          : { value, alignVertical: "top", wrap: layout[i]!.wrap, height },
-      );
+      return r.map((value, i) => {
+        if (value === null) return null;
+        const style = {
+          alignVertical: "top",
+          wrap: layout[i]!.wrap,
+          height,
+        } as const;
+        // The address stays the cell's text, so a viewer that opens no links still shows it.
+        return opensAsLink(s, i, value)
+          ? {
+              ...style,
+              value,
+              textColor: "#0563C1",
+              textDecoration: { underline: true as const },
+            }
+          : { ...style, value };
+      });
     });
     return {
       sheet: s.name,
-      stickyRowsCount: 1,
+      stickyRowsCount: s.note ? 2 : 1,
       columns: layout.map(({ width }) => ({ width })),
       data: [
+        ...(s.note ? [[{ value: s.note, fontStyle: "italic" as const }]] : []),
         s.header.map((h) => ({ value: h, fontWeight: "bold" as const })),
         ...rows,
       ],
@@ -270,7 +315,8 @@ export async function writeXlsx(record: ExportRecord): Promise<Buffer> {
   return finishPackage(
     await writeXlsxFile(sheets).toBuffer(),
     exported,
-    record.catalog,
+    record,
+    meta,
   );
 }
 
@@ -280,13 +326,15 @@ const columnLetter = (n: number): string =>
   String.fromCharCode(65 + ((n - 1) % 26));
 
 /**
- * What `write-excel-file` cannot write: a filter on each header row, that row repeated on
- * every printed page, and the document's title. Sheet N of the package is the Nth sheet.
+ * What `write-excel-file` cannot write: a filter on each header row, the rows down to it
+ * repeated on every printed page, each link column's links, and the document's title and
+ * date. Sheet N of the package is the Nth sheet.
  */
 export function finishPackage(
   xlsx: Buffer,
   sheets: ExportSheet[],
-  title: string,
+  record: ExportRecord,
+  meta: ExportMeta,
 ): Buffer {
   const parts = unzipSync(new Uint8Array(xlsx));
   const text = (path: string) => strFromU8(parts[path]!);
@@ -294,18 +342,49 @@ export function finishPackage(
   sheets.forEach((s, i) => {
     const path = `xl/worksheets/sheet${i + 1}.xml`;
     const last = columnLetter(s.header.length);
-    const rows = s.rows.length + 1;
-    // An autoFilter follows sheetData directly; nothing the library writes sits between.
-    parts[path] = strToU8(
-      text(path).replace(
-        "</sheetData>",
-        `</sheetData><autoFilter ref="A1:${last}${rows}"/>`,
-      ),
-    );
+    const head = s.note ? 2 : 1;
+    const rows = s.rows.length + head;
     const ref = `'${xml(s.name.replace(/'/g, "''"))}'`;
+    const column = s.linkColumn;
+    const links =
+      column === undefined
+        ? []
+        : s.rows.flatMap((r, row) => {
+            const url = r[column];
+            return url && opensAsLink(s, column, url)
+              ? [{ cell: `${columnLetter(column + 1)}${row + head + 1}`, url }]
+              : [];
+          });
+    if (links.length) {
+      // Hyperlinks close the worksheet: nothing the library writes follows the filter.
+      parts[path] = strToU8(
+        text(path).replace(
+          "</worksheet>",
+          `<hyperlinks>${links.map((l, n) => `<hyperlink ref="${l.cell}" r:id="rIdX${n + 1}"/>`).join("")}</hyperlinks></worksheet>`,
+        ),
+      );
+      const rels = `xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
+      parts[rels] = strToU8(
+        text(rels).replace(
+          "</Relationships>",
+          `${links.map((l, n) => `<Relationship Id="rIdX${n + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xml(l.url)}" TargetMode="External"/>`).join("")}</Relationships>`,
+        ),
+      );
+    }
+    if (!s.plain) {
+      // An autoFilter follows sheetData directly; nothing the library writes sits between.
+      parts[path] = strToU8(
+        text(path).replace(
+          "</sheetData>",
+          `</sheetData><autoFilter ref="A${head}:${last}${rows}"/>`,
+        ),
+      );
+      names.push(
+        `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">${ref}!$A$${head}:$${last}$${rows}</definedName>`,
+      );
+    }
     names.push(
-      `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">${ref}!$A$1:$${last}$${rows}</definedName>`,
-      `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${ref}!$1:$1</definedName>`,
+      `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${ref}!$1:$${head}</definedName>`,
     );
   });
   parts["xl/workbook.xml"] = strToU8(
@@ -314,9 +393,7 @@ export function finishPackage(
       `<definedNames>${names.join("")}</definedNames>`,
     ),
   );
-  parts["docProps/core.xml"] = strToU8(
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(title)}</dc:title><dc:language>en-US</dc:language></cp:coreProperties>`,
-  );
+  parts["docProps/core.xml"] = strToU8(corePropertiesXml(record, meta));
   parts["[Content_Types].xml"] = strToU8(
     text("[Content_Types].xml").replace(
       "</Types>",

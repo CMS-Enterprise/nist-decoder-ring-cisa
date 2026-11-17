@@ -25,6 +25,12 @@ The repository runs no CI of its own. The gates are written out, commented, in [
 - **Comments say what the code does and why.** Issue and pull request numbers go in the pull request, not in code, comments or docs.
 - **Schema changes are Prisma migrations**, additive where they can be.
 
+## Releases
+
+Releases in this repository are updated by pushes from upstream and by commits unique to this repository, which are kept for what belongs to this repository alone. The code is maintained upstream, in the repository it was exported from: changes are reviewed and merged there, and each release is cut there and checked before it is pushed here. A release arrives as the upstream changes since the last one, applied as patches on top of this history, and is tagged here with its version.
+
+Open pull requests here as usual. An accepted pull request is applied upstream as a patch, keeping you as its author, goes through the same review and checks as any other change, and arrives here with the next release. It is closed then, naming that release.
+
 ## About this repository
 
 Everything committed here is public: no credentials, internal hostnames, account numbers or other non-public information. The published repository's history starts at a single commit, so a change carried over from the repository it was exported from arrives as a patch (`git format-patch`, then `git am`), never by commit SHA.

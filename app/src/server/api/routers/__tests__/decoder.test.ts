@@ -456,10 +456,9 @@ describe("decoder.getBridgeData", () => {
       name: "Access Policy",
       status: "compliance",
       family: "AC",
-      pillars: [],
-      maturities: [],
+      zeroTrust: [],
+      enhancements: [],
       functions: [],
-      designations: [],
       baselines: [],
       enhancementBaselines: [],
       ztMapping: undefined,
@@ -491,9 +490,10 @@ describe("decoder.getBridgeData", () => {
 
     expect(ctrl.status).toBe("zero-trust-aligned");
     expect(ctrl.family).toBe("AC");
-    // Filter dimensions are sourced from the per-tuple affinity rows.
-    expect(ctrl.pillars).toEqual(["IDENTITY"]);
-    expect(ctrl.maturities).toEqual(["OPTIMAL"]);
+    // Filter rows are sourced from the per-tuple affinity rows.
+    expect(ctrl.zeroTrust).toEqual([
+      { pillar: "IDENTITY", maturity: "OPTIMAL", designation: null },
+    ]);
     expect(ctrl.functions).toEqual(["Identity Management"]);
     // The representative ztMapping carries pillar/function/maturity + resolved guidance.
     expect(ctrl.ztMapping).toEqual({
@@ -504,9 +504,9 @@ describe("decoder.getBridgeData", () => {
     });
   });
 
-  it("deduplicates a pillar repeated across affinity rows", async () => {
+  it("keeps each affinity row as a filter row, and deduplicates functions", async () => {
     // The IDENTITY pillar has several functions in the seed; a control mapped to two
-    // of them yields two affinity rows sharing the pillar. unique() must collapse it.
+    // of them yields two affinity rows sharing the pillar, each at its own maturity.
     mockDb.nistControl.findMany.mockResolvedValue([
       makeControl({
         controlNumber: "AC-02",
@@ -534,12 +534,14 @@ describe("decoder.getBridgeData", () => {
     const result = await caller().decoder.getBridgeData();
     const ctrl = result.families[0]!.controls[0]!;
 
-    expect(ctrl.pillars).toEqual(["IDENTITY"]); // collapsed despite two rows
-    expect(ctrl.maturities).toEqual(["ADVANCED", "OPTIMAL"]);
+    expect(ctrl.zeroTrust).toEqual([
+      { pillar: "IDENTITY", maturity: "ADVANCED", designation: null },
+      { pillar: "IDENTITY", maturity: "OPTIMAL", designation: null },
+    ]);
     expect(ctrl.functions).toEqual(["Identity Management", "Identity Stores"]);
   });
 
-  it("surfaces ALL distinct pillars/maturities/functions for a multi-affinity control", async () => {
+  it("surfaces every row and distinct function for a multi-affinity control", async () => {
     // Multi-pillar guard: a control whose affinities span several distinct
     // (pillar, function, maturity) tuples must expose every distinct value so the
     // client filter never mis-buckets it on the representative mapping alone.
@@ -577,20 +579,22 @@ describe("decoder.getBridgeData", () => {
     const result = await caller().decoder.getBridgeData();
     const ctrl = result.families[0]!.controls[0]!;
 
-    expect(ctrl.pillars).toEqual(["IDENTITY", "DATA"]);
-    expect(ctrl.maturities).toEqual(["ADVANCED", "OPTIMAL"]);
+    // Every row, with its designation; the undesignated tuple carries none.
+    expect(ctrl.zeroTrust).toEqual([
+      { pillar: "IDENTITY", maturity: "ADVANCED", designation: null },
+      { pillar: "DATA", maturity: "OPTIMAL", designation: "SUPPORTING" },
+      { pillar: "DATA", maturity: "OPTIMAL", designation: "SUPPORTING" },
+    ]);
     expect(ctrl.functions).toEqual([
       "Identity Management",
       "Data Encryption",
       "Data Access",
     ]);
-    // Distinct designations; the undesignated tuple adds none.
-    expect(ctrl.designations).toEqual(["SUPPORTING"]);
   });
 
   it("falls back to the representative mapping for dimensions when there are no affinity rows", async () => {
     // A ZT-mapped control whose ztMapping has an empty affinities array must still
-    // populate pillars/maturities/functions from the representative mapping.
+    // populate its filter row and functions from the representative mapping.
     mockDb.nistControl.findMany.mockResolvedValue([
       makeControl({
         controlNumber: "AC-02",
@@ -608,8 +612,9 @@ describe("decoder.getBridgeData", () => {
     const ctrl = result.families[0]!.controls[0]!;
 
     expect(ctrl.status).toBe("zero-trust-aligned");
-    expect(ctrl.pillars).toEqual(["NETWORKS"]);
-    expect(ctrl.maturities).toEqual(["INITIAL"]);
+    expect(ctrl.zeroTrust).toEqual([
+      { pillar: "NETWORKS", maturity: "INITIAL", designation: null },
+    ]);
     expect(ctrl.functions).toEqual(["Network Segmentation"]);
   });
 
@@ -619,13 +624,32 @@ describe("decoder.getBridgeData", () => {
         controlNumber: "AC-01",
         controlFamilyId: "AC",
         ztMapping: null,
-        children: [{ baselineLabels: [], ztMapping: { id: "zt-AC-01-01" } }],
+        children: [
+          {
+            controlNumber: "AC-01(01)",
+            baselineLabels: [],
+            ztMapping: makeZtMapping({
+              maturityLevel: "OPTIMAL",
+              affinities: [],
+            }),
+          },
+        ],
       }),
     ]);
 
     const result = await caller().decoder.getBridgeData();
     expect(result.families[0]!.controls[0]!.status).toBe("zt-via-enhancements");
     expect(result.families[0]!.controls[0]!.ztMapping).toBeUndefined();
+    // The enhancement's rows travel with the base, so a facet can match through them.
+    expect(result.families[0]!.controls[0]!.enhancements).toEqual([
+      {
+        id: "AC-01(01)",
+        zeroTrust: [
+          { pillar: "IDENTITY", maturity: "OPTIMAL", designation: null },
+        ],
+        baselines: [],
+      },
+    ]);
   });
 
   it("assigns 'zt-aligned-with-enhancements' when the base AND an enhancement are ZT-mapped", async () => {
@@ -634,7 +658,13 @@ describe("decoder.getBridgeData", () => {
         controlNumber: "AC-02",
         controlFamilyId: "AC",
         ztMapping: makeZtMapping(),
-        children: [{ baselineLabels: [], ztMapping: { id: "zt-AC-02-01" } }],
+        children: [
+          {
+            controlNumber: "AC-02(01)",
+            baselineLabels: [],
+            ztMapping: makeZtMapping(),
+          },
+        ],
       }),
     ]);
 
@@ -652,8 +682,16 @@ describe("decoder.getBridgeData", () => {
         ztMapping: null,
         baselineLabels: ["Moderate", "High"],
         children: [
-          { baselineLabels: ["Low", "Moderate"], ztMapping: null },
-          { baselineLabels: ["Privacy"], ztMapping: null },
+          {
+            controlNumber: "AU-09(01)",
+            baselineLabels: ["Low", "Moderate"],
+            ztMapping: null,
+          },
+          {
+            controlNumber: "AU-09(02)",
+            baselineLabels: ["Privacy"],
+            ztMapping: null,
+          },
         ],
       }),
     ]);
@@ -662,6 +700,8 @@ describe("decoder.getBridgeData", () => {
       .controls[0]!;
     expect(ctrl.baselines).toEqual(["Moderate", "High"]);
     expect(ctrl.enhancementBaselines).toEqual(["Low", "Moderate", "Privacy"]);
+    // An unmapped enhancement can't match a ZT facet, so it isn't sent.
+    expect(ctrl.enhancements).toEqual([]);
     expect(ctrl.status).toBe("compliance");
   });
 
@@ -748,9 +788,12 @@ describe("decoder.getBridgeData", () => {
           children: {
             where: { status: "LIVE" },
             select: {
+              controlNumber: true,
+              controlName: true,
               baselineLabels: true,
-              ztMapping: { select: { id: true } },
+              ztMapping: { include: { affinities: true } },
             },
+            orderBy: { sortId: "asc" },
           },
         }),
       }),
@@ -3028,7 +3071,13 @@ describe("exportRouter: export.getExportRecord", () => {
       .mockResolvedValueOnce([
         makeControl({
           controlNumber: "AC-02",
-          children: [{ baselineLabels: ["Low"], ztMapping: null }],
+          children: [
+            {
+              controlNumber: "AC-02(01)",
+              baselineLabels: ["Low"],
+              ztMapping: null,
+            },
+          ],
         }),
       ])
       .mockResolvedValueOnce([

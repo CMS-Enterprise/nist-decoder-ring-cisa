@@ -1,6 +1,6 @@
 /**
  * The harness's smoke test: the built app, reading the seeded database, draws the
- * layer cake in a real browser. The flows come in their own files.
+ * layer cake in a real browser. The flows are in their own files, beside this one.
  */
 
 import { expect, test } from "@playwright/test";

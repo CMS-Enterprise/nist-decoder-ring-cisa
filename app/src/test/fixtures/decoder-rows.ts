@@ -66,10 +66,11 @@ export type ControlFixture = ControlRow & {
   controlFamily: { id: string; name: string; sortOrder: number };
   parentControlId: string | null;
   nistVersionId: string;
-  /** The `children` select from `getBridgeData`: each enhancement's baselines and whether it is ZT-mapped. */
+  /** The `children` select from `getBridgeData`: each enhancement's number, baselines and mapping. */
   children: Array<{
+    controlNumber?: string;
     baselineLabels: string[];
-    ztMapping: { id: string } | null;
+    ztMapping: ZtMappingFixture | null;
   }>;
 };
 

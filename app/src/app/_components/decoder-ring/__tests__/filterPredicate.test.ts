@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  enhancementResults,
+  matchingEnhancements,
   normalizeControlId,
+  ownRowPasses,
   passesFacets,
   matchesText,
   matchesQuery,
@@ -22,16 +25,26 @@ const EMPTY: FilterQuery = {
 };
 
 function control(
-  overrides: Partial<FilterableControl> = {},
+  overrides: Partial<FilterableControl> & {
+    pillars?: string[];
+    maturities?: string[];
+  } = {},
 ): FilterableControl {
+  const {
+    pillars = ["IDENTITY"],
+    maturities = ["ADVANCED"],
+    ...rest
+  } = overrides;
   return {
     id: "AC-02",
     name: "Account Management",
     status: "zero-trust-aligned",
     family: "AC",
-    pillars: ["IDENTITY"],
-    maturities: ["ADVANCED"],
-    ...overrides,
+    // One row for each pillar at each maturity.
+    zeroTrust: pillars.flatMap((pillar) =>
+      maturities.map((maturity) => ({ pillar, maturity })),
+    ),
+    ...rest,
   };
 }
 
@@ -87,6 +100,96 @@ describe("passesFacets", () => {
     ).toBe(false);
   });
 
+  it("matches pillar and maturity on one row, not across rows", () => {
+    const q: FilterQuery = {
+      ...EMPTY,
+      pillar: ["DEVICES"],
+      maturity: ["INITIAL"],
+    };
+    const split = control({
+      zeroTrust: [
+        { pillar: "DEVICES", maturity: "OPTIMAL" },
+        { pillar: "IDENTITY", maturity: "INITIAL" },
+      ],
+    });
+    expect(passesFacets(split, q)).toBe(false);
+    expect(
+      passesFacets(
+        control({
+          zeroTrust: [
+            ...split.zeroTrust,
+            { pillar: "DEVICES", maturity: "INITIAL" },
+          ],
+        }),
+        q,
+      ),
+    ).toBe(true);
+  });
+
+  it("matches a base through an enhancement's row, and names that enhancement", () => {
+    const q: FilterQuery = { ...EMPTY, maturity: ["OPTIMAL"] };
+    const base = control({
+      zeroTrust: [{ pillar: "IDENTITY", maturity: "INITIAL" }],
+      enhancements: [
+        { id: "AC-02(01)", zeroTrust: [] },
+        {
+          id: "AC-02(03)",
+          zeroTrust: [{ pillar: "DATA", maturity: "OPTIMAL" }],
+        },
+      ],
+    });
+    expect(passesFacets(base, q)).toBe(true);
+    expect(ownRowPasses(base, q)).toBe(false);
+    expect(matchingEnhancements(base, q)).toEqual(["AC-02(03)"]);
+    // With no pillar or maturity facet, nothing matches through an enhancement.
+    expect(matchingEnhancements(base, EMPTY)).toEqual([]);
+    expect(ownRowPasses(base, EMPTY)).toBe(true);
+  });
+
+  it("needs one enhancement to meet the ZT and baseline facets together", () => {
+    const q: FilterQuery = {
+      ...EMPTY,
+      maturity: ["OPTIMAL"],
+      baseline: ["PRIVACY"],
+    };
+    const optimal = { pillar: "DATA", maturity: "OPTIMAL" };
+    const split = control({
+      zeroTrust: [],
+      enhancementBaselines: ["Privacy"],
+      enhancements: [
+        { id: "AC-02(01)", zeroTrust: [optimal], baselines: ["Low"] },
+        { id: "AC-02(02)", zeroTrust: [], baselines: ["Privacy"] },
+      ],
+    });
+    expect(passesFacets(split, q)).toBe(false);
+    expect(matchingEnhancements(split, q)).toEqual([]);
+
+    const both = control({
+      ...split,
+      enhancements: [
+        ...split.enhancements!,
+        {
+          id: "AC-02(03)",
+          zeroTrust: [optimal],
+          baselines: ["High", "Privacy"],
+        },
+      ],
+    });
+    expect(passesFacets(both, q)).toBe(true);
+    expect(matchingEnhancements(both, q)).toEqual(["AC-02(03)"]);
+  });
+
+  it("matches a mapping with no affinity rows on any of its joined pillars", () => {
+    expect(
+      passesFacets(
+        control({
+          zeroTrust: [{ pillar: "IDENTITY, DATA", maturity: "INITIAL" }],
+        }),
+        { ...EMPTY, pillar: ["DATA"] },
+      ),
+    ).toBe(true);
+  });
+
   it("matches a multi-pillar control on any one of its pillars", () => {
     expect(
       passesFacets(control({ pillars: ["IDENTITY", "DATA"] }), {
@@ -126,8 +229,7 @@ describe("passesFacets", () => {
   it("hides a compliance-only control under an active pillar facet, shows it under its status", () => {
     const compliance = control({
       status: "compliance",
-      pillars: [],
-      maturities: [],
+      zeroTrust: [],
     });
     expect(passesFacets(compliance, { ...EMPTY, pillar: ["IDENTITY"] })).toBe(
       false,
@@ -398,14 +500,19 @@ describe("isQueryActive", () => {
 });
 
 describe("passesFacets — designation", () => {
+  // One Identity / Traditional row for each designation; none gives one undesignated row.
   const ctl = (designations?: string[]): FilterableControl => ({
     id: "AC-06",
     name: "Least Privilege",
     status: "zero-trust-aligned",
     family: "AC",
-    pillars: ["IDENTITY"],
-    maturities: ["TRADITIONAL"],
-    designations,
+    zeroTrust: (designations?.length ? designations : [null]).map(
+      (designation) => ({
+        pillar: "IDENTITY",
+        maturity: "TRADITIONAL",
+        designation,
+      }),
+    ),
   });
 
   it("matches a control with any selected designation on one of its tuples", () => {
@@ -434,6 +541,27 @@ describe("passesFacets — designation", () => {
     expect(passesFacets(ctl(["KEY"]), q)).toBe(false);
   });
 
+  it("matches designation and pillar on one row", () => {
+    const q: FilterQuery = { ...EMPTY, designation: ["KEY"], pillar: ["DATA"] };
+    const rows = [
+      { pillar: "DATA", maturity: "INITIAL", designation: "SUPPORTING" },
+      { pillar: "IDENTITY", maturity: "INITIAL", designation: "KEY" },
+    ];
+    expect(passesFacets({ ...ctl(), zeroTrust: rows }, q)).toBe(false);
+    expect(
+      passesFacets(
+        {
+          ...ctl(),
+          zeroTrust: [
+            ...rows,
+            { pillar: "DATA", maturity: "OPTIMAL", designation: "KEY" },
+          ],
+        },
+        q,
+      ),
+    ).toBe(true);
+  });
+
   it("counts as an active query", () => {
     expect(isQueryActive({ ...EMPTY, designation: ["INFORMATIVE"] })).toBe(
       true,
@@ -447,8 +575,7 @@ describe("passesFacets — baseline", () => {
     name: "Account Management",
     status: "compliance",
     family: "AC",
-    pillars: [],
-    maturities: [],
+    zeroTrust: [],
     baselines,
   });
 
@@ -493,5 +620,173 @@ describe("passesFacets — baseline", () => {
     const q: FilterQuery = { ...EMPTY, baseline: ["MODERATE"], family: ["AU"] };
     expect(passesFacets(ctl(["Moderate"]), q)).toBe(false);
     expect(isQueryActive({ ...EMPTY, baseline: ["LOW"] })).toBe(true);
+  });
+});
+
+describe("enhancementResults", () => {
+  const identity = {
+    pillar: "IDENTITY",
+    maturity: "ADVANCED",
+    designation: "KEY",
+  };
+  const data = {
+    pillar: "DATA",
+    maturity: "OPTIMAL",
+    designation: "INFORMATIVE",
+  };
+  const base: FilterableControl = {
+    id: "AC-02",
+    name: "Account Management",
+    status: "zt-via-enhancements",
+    family: "AC",
+    zeroTrust: [],
+    enhancements: [
+      {
+        id: "AC-02(01)",
+        name: "Automated Account Management",
+        zeroTrust: [identity],
+      },
+      { id: "AC-02(03)", name: "Disable Accounts", zeroTrust: [data] },
+    ],
+  };
+  const other: FilterableControl = {
+    id: "AU-02",
+    name: "Event Logging",
+    status: "zt-via-enhancements",
+    family: "AU",
+    zeroTrust: [],
+    enhancements: [
+      { id: "AU-02(01)", name: "Compilation", zeroTrust: [identity] },
+    ],
+  };
+  const q: FilterQuery = { ...EMPTY, pillar: ["IDENTITY"], q: "account" };
+
+  it("lists the matching enhancements of a hit base, with names", () => {
+    expect(enhancementResults([base, other], q, new Set(["AC-02"]))).toEqual([
+      { id: "AC-02(01)", name: "Automated Account Management", base: "AC-02" },
+    ]);
+  });
+
+  it("lists them under a designation filter alone", () => {
+    expect(
+      enhancementResults(
+        [base],
+        { ...EMPTY, designation: ["INFORMATIVE"], q: "account" },
+        new Set(["AC-02"]),
+      ).map((r) => r.id),
+    ).toEqual(["AC-02(03)"]);
+  });
+
+  it("lists an enhancement whose own number or name matches when its base is no hit", () => {
+    expect(
+      enhancementResults([base, other], { ...q, q: "AC-02(01)" }, new Set()),
+    ).toEqual([
+      { id: "AC-02(01)", name: "Automated Account Management", base: "AC-02" },
+    ]);
+    expect(
+      enhancementResults([base, other], { ...q, q: "compil" }, new Set()),
+    ).toEqual([{ id: "AU-02(01)", name: "Compilation", base: "AU-02" }]);
+  });
+
+  it("matches a typed enhancement number whole", () => {
+    const many: FilterableControl = {
+      ...base,
+      enhancements: [
+        { id: "AC-02(01)", name: "One", zeroTrust: [identity] },
+        { id: "AC-02(11)", name: "Eleven", zeroTrust: [identity] },
+      ],
+    };
+    expect(
+      enhancementResults([many], { ...q, q: "AC-02(01)" }, new Set()).map(
+        (r) => r.id,
+      ),
+    ).toEqual(["AC-02(01)"]);
+  });
+
+  it("matches a partly typed enhancement number by its digits", () => {
+    const many: FilterableControl = {
+      ...base,
+      enhancements: ["AC-02(01)", "AC-02(02)", "AC-02(11)", "AC-02(12)"].map(
+        (id) => ({ id, name: id, zeroTrust: [identity] }),
+      ),
+    };
+    const ids = (text: string) =>
+      enhancementResults([many], { ...q, q: text }, new Set()).map((r) => r.id);
+    expect(ids("AC-02(1")).toEqual(["AC-02(01)", "AC-02(11)", "AC-02(12)"]);
+    expect(ids("AC-02(0")).toEqual(["AC-02(01)", "AC-02(02)"]);
+    expect(ids("AC-02(1)")).toEqual(["AC-02(01)"]);
+    expect(ids("AC-2(12")).toEqual(["AC-02(12)"]);
+    expect(ids("AC-20(1")).toEqual([]);
+  });
+
+  it("names the base whole once an enhancement is opened", () => {
+    const ac24: FilterableControl = {
+      ...base,
+      id: "AC-24",
+      enhancements: [
+        { id: "AC-24(01)", name: "Transmit", zeroTrust: [identity] },
+      ],
+    };
+    expect(
+      enhancementResults([base, ac24], { ...q, q: "AC-02(" }, new Set()).map(
+        (r) => r.id,
+      ),
+    ).toEqual(["AC-02(01)"]);
+    // The diagram's text match takes the same rule.
+    expect(matchesText(base, "AC-02(")).toBe(true);
+    expect(matchesText(ac24, "AC-02(")).toBe(false);
+  });
+
+  it("matches a whole number whole, and a partial one by prefix", () => {
+    const ac24 = { ...base, id: "AC-24" };
+    expect(matchesText(base, "AC-02")).toBe(true);
+    expect(matchesText(ac24, "AC-02")).toBe(false);
+    expect(matchesText(ac24, "ac02")).toBe(false);
+    expect(matchesText(ac24, "AC-2")).toBe(true);
+    expect(matchesText(base, "AC-2")).toBe(true);
+    expect(
+      enhancementResults(
+        [
+          base,
+          {
+            ...ac24,
+            enhancements: [
+              { id: "AC-24(01)", name: "T", zeroTrust: [identity] },
+            ],
+          },
+        ],
+        { ...q, q: "AC-02" },
+        new Set(),
+      ).map((r) => r.id),
+    ).toEqual(["AC-02(01)"]);
+  });
+
+  it("shows a typed enhancement's base in the diagram", () => {
+    expect(matchesText(base, "AC-02(01)")).toBe(true);
+    expect(matchesText(base, "ac-2.1")).toBe(true);
+    expect(matchesText({ ...base, id: "AC-03" }, "AC-02(01)")).toBe(false);
+  });
+
+  it("takes the server's hits for free text only", () => {
+    // The server matches an identifier as a substring of prose; the number rule decides.
+    expect(
+      enhancementResults([other], { ...q, q: "AC-02(01)" }, new Set(["AU-02"])),
+    ).toEqual([]);
+  });
+
+  it("lists nothing without a Zero Trust filter", () => {
+    expect(
+      enhancementResults(
+        [base],
+        { ...EMPTY, q: "account" },
+        new Set(["AC-02"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("lists nothing for a base the diagram hides", () => {
+    expect(
+      enhancementResults([base], { ...q, family: ["AU"] }, new Set(["AC-02"])),
+    ).toEqual([]);
   });
 });

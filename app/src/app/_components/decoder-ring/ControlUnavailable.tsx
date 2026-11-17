@@ -2,7 +2,10 @@
 
 import { X } from "lucide-react";
 
+import { useRef } from "react";
+
 import { useCloseToCake } from "./useCloseToCake";
+import { useDialogFocus } from "./useDialogFocus";
 import { useEscape } from "./useEscape";
 
 /**
@@ -22,10 +25,13 @@ export default function ControlUnavailable({
 }) {
   const close = useCloseToCake();
   useEscape(close);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef);
 
   return (
-    <div className="animate-in fade-in bg-scrim/70 fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm duration-200">
+    <div className="bg-scrim/70 fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="control-unavailable-title"
@@ -41,7 +47,9 @@ export default function ControlUnavailable({
         </button>
         <h2
           id="control-unavailable-title"
-          className="text-ink mb-2 pr-8 text-xl font-bold"
+          data-dialog-start
+          tabIndex={-1}
+          className="text-ink mb-2 pr-8 text-xl font-bold outline-none"
         >
           {title}
         </h2>

@@ -4,6 +4,9 @@ import { TRPCError } from "@trpc/server";
 import { createLoader, parseAsStringEnum } from "nuqs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { appVersion } from "~/config/version";
+import { env } from "~/env";
+import { exportFileName } from "~/lib/export/about";
 import { writeDocx } from "~/lib/export/docx";
 import {
   droppedExportValues,
@@ -30,7 +33,10 @@ const CONTENT_TYPE = {
 } as const;
 
 // Bump when a writer's output changes, so a browser revalidating an old file is sent the new one.
-const WRITER_VERSION = "4";
+const WRITER_VERSION = "6";
+
+// The deployment's public address, from its configuration and never from the request.
+const APP_URL = env.AUTH_URL?.replace(/\/+$/, "") ?? null;
 
 const invalid = (error: string) =>
   NextResponse.json({ error }, { status: 400 });
@@ -76,19 +82,29 @@ export async function GET(request: NextRequest) {
       exportCacheKey(versionId, format, selection),
       async () => {
         const record = await exporter.export.getExportRecord(selection);
+        const meta = {
+          exportedAt: new Date(),
+          appVersion: appVersion ?? null,
+          appUrl: APP_URL,
+          selection,
+        };
         const file =
-          format === "docx" ? await writeDocx(record) : await writeXlsx(record);
-        const slug = record.catalog
-          .replace(/[^A-Za-z0-9.]+/g, "-")
-          .toLowerCase();
+          format === "docx"
+            ? await writeDocx(record, meta)
+            : await writeXlsx(record, meta);
         return {
           file,
-          name: `${slug}-export.${format}`,
-          // From the record, not the bytes: the XLSX package carries its build time.
+          name: exportFileName(
+            record.catalog,
+            format,
+            selection,
+            meta.exportedAt,
+          ),
+          // From the record, not the bytes: each file carries its build time.
           etag: `"${createHash("sha256")
             .update(WRITER_VERSION)
             .update(format)
-            .update(JSON.stringify(record))
+            .update(JSON.stringify([record, meta.appVersion, meta.appUrl]))
             .digest("base64url")}"`,
           // The version may have switched since the key was made; never file one under the other.
           cacheable: record.versionId === versionId,

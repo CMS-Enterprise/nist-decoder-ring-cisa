@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   matchesQuery,
+  ownRowPasses,
   type FilterQuery,
 } from "~/app/_components/decoder-ring/filterPredicate";
 import { lineageLines } from "~/app/_components/decoder-ring/lineage-text";
@@ -238,7 +239,7 @@ describe("getExportRecord", () => {
     }
   });
 
-  it("keeps only the rows a designation filter selects, alone or with a pillar", async () => {
+  it("keeps only the rows a designation filter selects, alone or with a pillar on the same row", async () => {
     const whole = await exporter.export.getExportRecord(
       select({ enhancements: "without", data: ["zeroTrust"] }),
     );
@@ -254,13 +255,18 @@ describe("getExportRecord", () => {
       const r = await exporter.export.getExportRecord(
         select({ ...query, enhancements: "without" }),
       );
+      // The file holds the diagram's controls whose own rows match.
       const shown = bridge.families
         .flatMap((f) => f.controls)
-        .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }))
+        .filter(
+          (c) =>
+            matchesQuery(c, { ...NO_FILTER, ...query }) &&
+            ownRowPasses(c, { ...NO_FILTER, ...query }),
+        )
         .map((c) => c.id);
       expect(ids(r).sort(), JSON.stringify(query)).toEqual(shown.sort());
       for (const c of r.controls) {
-        if (!query.pillar) expect(c.zeroTrust!.length, c.id).toBeGreaterThan(0);
+        expect(c.zeroTrust!.length, c.id).toBeGreaterThan(0);
         for (const t of c.zeroTrust!) {
           expect(t.designation, c.id).toBe(designation);
           if (query.pillar) expect(t.pillar, c.id).toBe(sample.pillar);
@@ -269,8 +275,8 @@ describe("getExportRecord", () => {
     }
   });
 
-  it("with pillar and maturity both on, exports what the diagram shows, each with only the rows that match both", async () => {
-    // A control that has the pillar and the maturity on different rows: the diagram shows it.
+  it("with pillar and maturity both on, matches them on one row, in the diagram and the export", async () => {
+    // A control that has the pillar and the maturity on different rows only.
     const whole = await exporter.export.getExportRecord(
       select({ enhancements: "without", data: ["zeroTrust"] }),
     );
@@ -299,17 +305,64 @@ describe("getExportRecord", () => {
     const bridge = await caller.decoder.getBridgeData();
     const shown = bridge.families
       .flatMap((f) => f.controls)
-      .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }))
-      .map((c) => c.id);
-    expect(ids(r).sort()).toEqual(shown.sort());
-
+      .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }));
+    // The diagram no longer shows it, unless an enhancement has the row.
+    const card = shown.find((c) => c.id === split!.id);
+    if (card)
+      expect(ownRowPasses(card, { ...NO_FILTER, ...query })).toBe(false);
+    // The file holds the diagram's controls whose own rows match, each with only those rows.
+    expect(ids(r).sort()).toEqual(
+      shown
+        .filter((c) => ownRowPasses(c, { ...NO_FILTER, ...query }))
+        .map((c) => c.id)
+        .sort(),
+    );
     for (const c of r.controls) {
       const all = whole.controls.find((w) => w.id === c.id)!.zeroTrust!;
       const both = all.filter(
         (t) => t.pillar === split!.pillar && t.maturity === split!.maturity,
       );
+      expect(both.length, c.id).toBeGreaterThan(0);
       expect(c.zeroTrust, c.id).toEqual(both);
     }
+  });
+
+  it("exports something for every control the diagram shows under a Zero Trust and a baseline filter", async () => {
+    const bridge = await caller.decoder.getBridgeData();
+    const cards = bridge.families.flatMap((f) => f.controls);
+    for (const facet of [
+      { maturity: ["INITIAL"] },
+      { maturity: ["OPTIMAL"] },
+      { designation: ["KEY"] },
+    ])
+      for (const baseline of ["LOW", "HIGH"]) {
+        const query = { ...facet, baseline: [baseline] };
+        const shown = cards
+          .filter((c) => matchesQuery(c, { ...NO_FILTER, ...query }))
+          .map((c) => c.id);
+        const r = await exporter.export.getExportRecord(select(query));
+        const bases = new Set(ids(r).map((id) => id.replace(/\(\d+\)$/, "")));
+        expect(
+          shown.filter((id) => !bases.has(id)),
+          JSON.stringify(query),
+        ).toEqual([]);
+      }
+  });
+
+  it("under a maturity filter, exports the controls and enhancements with a row at it, and nothing else", async () => {
+    const whole = await exporter.export.getExportRecord(
+      select({ data: ["zeroTrust"] }),
+    );
+    const optimal = whole.controls
+      .filter((c) => c.zeroTrust?.some((t) => t.maturity === "OPTIMAL"))
+      .map((c) => c.id);
+    // Enhancements at Optimal under a base without it are in the file too.
+    expect(optimal.some((id) => id.includes("("))).toBe(true);
+
+    const r = await exporter.export.getExportRecord(
+      select({ maturity: ["OPTIMAL"] }),
+    );
+    expect(ids(r)).toEqual(optimal);
   });
 
   it("free-text search narrows on the server's prose match, as the diagram does", async () => {
@@ -339,6 +392,7 @@ describe("getExportRecord", () => {
     const r = await exporter.export.getExportRecord(select({}));
     expect(r.controls).toHaveLength(live);
     expect(r.catalog).toBe(version.displayLabel);
+    expect(r.catalogVersion).toBe(version.version);
   });
 
   it("exports a withdrawn control when it is picked", async () => {

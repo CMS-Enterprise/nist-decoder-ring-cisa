@@ -4,7 +4,9 @@
  * When the filter is active, a control that does NOT pass matchesQuery dims in place
  * (opacity-30 grayscale) while the family keeps its height + frozen position; matching
  * controls stay vivid. When the filter is inactive, nothing dims. Every control
- * (matching or dimmed) is a link to its address.
+ * (matching or dimmed) is a link to its address, and a dimmed one is inert. jsdom keeps
+ * an inert element in the accessibility tree, so these check the attribute; the browser
+ * test in e2e/dimmed-chips.spec.ts checks what inert does.
  */
 import type { ComponentProps } from "react";
 import type * as NextLink from "next/link";
@@ -54,17 +56,29 @@ const IDENTITY_ACCOUNT_QUERY: FilterQuery = {
   q: "account",
 };
 
-function control(overrides: Partial<NistControl> = {}): NistControl {
+function control(
+  overrides: Partial<NistControl> & {
+    pillars?: string[];
+    maturities?: string[];
+  } = {},
+): NistControl {
+  const {
+    pillars = ["IDENTITY"],
+    maturities = ["ADVANCED"],
+    ...rest
+  } = overrides;
   return {
     id: "AC-02",
     oscalId: "ac-2",
     name: "Account Management",
     status: "zero-trust-aligned",
     family: "AC",
-    pillars: ["IDENTITY"],
-    maturities: ["ADVANCED"],
+    // One row for each pillar at each maturity.
+    zeroTrust: pillars.flatMap((pillar) =>
+      maturities.map((maturity) => ({ pillar, maturity })),
+    ),
     functions: [],
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -73,10 +87,56 @@ function family(controls: NistControl[]): ControlFamily {
 }
 
 // A chip's accessible name is its id, then its Zero Trust state ("AC-02, ZT Aligned").
+// Hidden elements included, since a dimmed chip is inert.
 function controlLink(id: string): HTMLElement {
   const escaped = id.replace(/[()]/g, "\\$&");
-  return screen.getByRole("link", { name: new RegExp(`^${escaped},`) });
+  return screen.getByRole("link", {
+    name: new RegExp(`^${escaped},`),
+    hidden: true,
+  });
 }
+
+describe("FamilyColumn — a match through an enhancement", () => {
+  it("links the chip to the first matching enhancement and says so in its name", () => {
+    const through = control({
+      id: "AC-17",
+      zeroTrust: [],
+      status: "zt-via-enhancements",
+      enhancements: [
+        { id: "AC-17(01)", zeroTrust: [] },
+        {
+          id: "AC-17(04)",
+          zeroTrust: [{ pillar: "IDENTITY", maturity: "OPTIMAL" }],
+        },
+        {
+          id: "AC-17(09)",
+          zeroTrust: [{ pillar: "IDENTITY", maturity: "INITIAL" }],
+        },
+      ],
+    });
+    const own = control({ id: "AC-02" });
+    render(
+      <FamilyColumn
+        family={family([through, own])}
+        query={{ ...EMPTY_QUERY, pillar: ["IDENTITY"] }}
+        isActive={true}
+        reflow={false}
+        hrefFor={hrefFor}
+      />,
+    );
+
+    const chip = controlLink("AC-17");
+    expect(chip).toHaveAttribute("href", "/control/AC-17(04)");
+    expect(chip.getAttribute("aria-label")).toMatch(
+      /, matches through enhancement \(04\)$/,
+    );
+    // A control whose own row matches opens on its base tab, as before.
+    expect(controlLink("AC-02")).toHaveAttribute("href", "/control/AC-02");
+    expect(controlLink("AC-02").getAttribute("aria-label")).not.toMatch(
+      /through/,
+    );
+  });
+});
 
 describe("FamilyColumn — filter-aware dimming", () => {
   it("dims non-matching controls in place and leaves matches vivid when active", () => {
@@ -107,8 +167,10 @@ describe("FamilyColumn — filter-aware dimming", () => {
 
     expect(dimmedEl).toHaveClass("opacity-30");
     expect(dimmedEl).toHaveClass("grayscale");
+    expect(dimmedEl).toHaveAttribute("inert");
     expect(matchEl).not.toHaveClass("opacity-30");
     expect(matchEl).not.toHaveClass("grayscale");
+    expect(matchEl).not.toHaveAttribute("inert");
   });
 
   it("dims nothing when the filter is inactive, even with a populated query", () => {
@@ -133,6 +195,7 @@ describe("FamilyColumn — filter-aware dimming", () => {
       const el = controlLink(id);
       expect(el).not.toHaveClass("opacity-30");
       expect(el).not.toHaveClass("grayscale");
+      expect(el).not.toHaveAttribute("inert");
     }
   });
 
@@ -154,6 +217,7 @@ describe("FamilyColumn — filter-aware dimming", () => {
       const el = controlLink(id);
       expect(el).not.toHaveClass("opacity-30");
       expect(el).not.toHaveClass("grayscale");
+      expect(el).not.toHaveAttribute("inert");
     }
   });
 
@@ -196,7 +260,7 @@ describe("FamilyColumn — filter-aware dimming", () => {
     }
   });
 
-  it("links a dimmed (non-matching) chip too", () => {
+  it("keeps a dimmed (non-matching) chip's address, and makes it inert", () => {
     const nonMatching = control({
       id: "SC-08",
       name: "Transmission Confidentiality",
@@ -216,6 +280,7 @@ describe("FamilyColumn — filter-aware dimming", () => {
     const el = controlLink("SC-08");
     expect(el).toHaveClass("opacity-30"); // confirm it is the dimmed one
     expect(el).toHaveAttribute("href", "/control/SC-08");
+    expect(el).toHaveAttribute("inert");
   });
 
   it("keeps a press-and-drag on a chip for panning, not for dragging the link", () => {
@@ -359,6 +424,7 @@ describe("FamilyColumn — reflow (collapse to matches)", () => {
     expect(matchEl).toBeInTheDocument();
     expect(matchEl).not.toHaveClass("opacity-30");
     expect(matchEl).not.toHaveClass("grayscale");
+    expect(matchEl).not.toHaveAttribute("inert");
   });
 });
 

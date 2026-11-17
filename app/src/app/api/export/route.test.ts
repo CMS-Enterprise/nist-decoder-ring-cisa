@@ -24,6 +24,7 @@ const { BuildTimeout, exportCache } = await import("~/server/export/cache");
 
 const RECORD: ExportRecord = {
   catalog: "Example Catalog 1.0",
+  catalogVersion: "1.0",
   versionId: "v1",
   datasets: ["statement"],
   fields: [],
@@ -62,13 +63,36 @@ describe("GET /api/export", () => {
     );
   });
 
-  it("returns an XLSX attachment by default", async () => {
-    const res = await get("");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toContain("spreadsheetml");
-    expect(res.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="example-catalog-1.0-export.xlsx"',
-    );
+  it("returns an XLSX attachment by default, named for its catalog and day", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-11-09T14:05:00Z"),
+    });
+    try {
+      const res = await get("");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("spreadsheetml");
+      expect(res.headers.get("Content-Disposition")).toBe(
+        'attachment; filename="example-catalog-1.0-2026-11-09.xlsx"',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the file for its filters, shortened", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-11-09T14:05:00Z"),
+    });
+    try {
+      const res = await get("?maturity=OPTIMAL&format=docx");
+      expect(res.headers.get("Content-Disposition")).toBe(
+        'attachment; filename="example-catalog-1.0-2026-11-09-optimal.docx"',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns a DOCX attachment when asked", async () => {

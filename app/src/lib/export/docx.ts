@@ -1,6 +1,12 @@
 import { strToU8, zipSync } from "fflate";
 
 import { product } from "~/config/product";
+import {
+  aboutRows,
+  controlLink,
+  corePropertiesXml,
+  type ExportMeta,
+} from "./about";
 import { NO_METHOD } from "./copy-text";
 import {
   cisaLabels,
@@ -24,6 +30,12 @@ import { xml } from "./xml";
 // Word bookmark names: a letter first, then letters, digits and underscores, at most 40.
 export const bookmarkFor = (id: string): string =>
   `c_${id.replace(/[^A-Za-z0-9]+/g, "_")}`.slice(0, 40);
+
+// The contents page's bookmark; a control's start with "c_", so none can take it.
+const CONTENTS = "contents";
+
+const anchorLink = (anchor: string, text: string) =>
+  `<w:hyperlink w:anchor="${anchor}" w:history="1">${run(text, { link: true })}</w:hyperlink>`;
 
 // A reference opens in the reader's browser, so only a web address becomes a link. Anything
 // else (file:, a UNC path, javascript:) is printed as text, never followed on a click.
@@ -187,6 +199,9 @@ const textLine = (line: string) => {
 
 const textBlock = (text: string) => text.split("\n").map(textLine);
 
+// A line break inside one paragraph.
+const BREAK = "<w:r><w:br/></w:r>";
+
 /**
  * A composed statement, its labelled items as nested lists that Word numbers. Each list
  * starts at its first item's label, and a label out of sequence starts a new list there,
@@ -197,18 +212,27 @@ const textBlock = (text: string) => text.split("\n").map(textLine);
  * so a label whose style differs from the list open at its indent nests below it, or
  * rejoins the deeper open list of its style. A line without a label after such an item
  * nests as far as that item did.
+ *
+ * An item with no text of its own takes the unlabelled lines under it (its values) as its
+ * text, one per line, so no list item is left blank.
  */
 function statementBlock(text: string, numbering: Numbering): string[] {
   const open: { style: LabelStyle; numId: number; next: number }[] = [];
   let shift = 0;
-  return text.split("\n").map((line) => {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const indent = Math.min(depthOf(line), MAX_LEVEL);
     const item = parseLabel(line.trimStart());
     if (!item) {
       const level = indent + shift;
-      return paragraph(run(line.trimStart()), {
-        indent: level > 0 ? level * LIST_INDENT : undefined,
-      });
+      out.push(
+        paragraph(run(line.trimStart()), {
+          indent: level > 0 ? level * LIST_INDENT : undefined,
+        }),
+      );
+      continue;
     }
     let depth = indent;
     while (
@@ -229,10 +253,24 @@ function statementBlock(text: string, numbering: Numbering): string[] {
       open[depth] = list;
     }
     list.next++;
-    return paragraph(run(item.text), {
-      list: { numId: list.numId, level: depth },
-    });
-  });
+    const values: string[] = [];
+    while (
+      !item.text.trim() &&
+      i + 1 < lines.length &&
+      depthOf(lines[i + 1]!) > depthOf(line) &&
+      !parseLabel(lines[i + 1]!.trimStart())
+    )
+      values.push(lines[++i]!.trimStart());
+    out.push(
+      paragraph(
+        (values.length ? values : [item.text]).map((t) => run(t)).join(BREAK),
+        {
+          list: { numId: list.numId, level: depth },
+        },
+      ),
+    );
+  }
+  return out;
 }
 
 // A discussion's "- " lines are bullet lists, one for each run of them.
@@ -259,6 +297,7 @@ function controlBlock(
   nested: boolean,
   inDocument: ReadonlySet<string>,
   zeroTrustFiltered: boolean,
+  appUrl: string | null,
 ): string[] {
   const name = bookmarkFor(c.id);
   // An enhancement nests under its base only when the base is in the document, and each
@@ -271,6 +310,12 @@ function controlBlock(
       { style: `Heading${level}` },
     ),
   ];
+  if (appUrl)
+    out.push(
+      paragraph(
+        links.external(controlLink(appUrl, c.id), `Open ${c.id} in the app`),
+      ),
+    );
   for (const line of c.lineage ?? []) out.push(paragraph(run(line)));
   if (c.baselines?.length)
     out.push(labelled("Baselines", c.baselines.join(", ")));
@@ -343,13 +388,14 @@ function controlBlock(
       out.push(
         paragraph(
           inDocument.has(r.id)
-            ? `<w:hyperlink w:anchor="${bookmarkFor(r.id)}" w:history="1">${run(text, { link: true })}</w:hyperlink>`
+            ? anchorLink(bookmarkFor(r.id), text)
             : run(text),
           { list: { numId, level: 0 } },
         ),
       );
     }
   }
+  out.push(paragraph(anchorLink(CONTENTS, "Back to contents")));
   return out;
 }
 
@@ -366,25 +412,59 @@ const headingStyle = (level: number, size: number) =>
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="80"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:rPr><w:sz w:val="48"/></w:rPr></w:style>${headingStyle(1, 36)}${headingStyle(2, 30)}${headingStyle(3, 26)}${headingStyle(4, 22)}<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style></w:styles>`;
 
+const PAGE =
+  '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>';
+
+const field = (instr: string, shown: string) =>
+  `<w:fldSimple w:instr="${xml(instr)}">${run(shown)}</w:fldSimple>`;
+
+// The control on the page: the latest base control's heading, or an enhancement's when it
+// stands alone. Word fills the field as it lays out each page.
+const HEADER = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/></w:pPr>${field(' STYLEREF "heading 2" ', "")}</w:p></w:hdr>`;
+
+const FOOTER = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr ${W}><w:p><w:pPr><w:jc w:val="center"/></w:pPr>${run("Page ")}${field(" PAGE ", "1")}${run(" of ")}${field(" NUMPAGES ", "1")}</w:p></w:ftr>`;
+
 /**
- * One section per framework: its title, a contents page linking each control's heading,
- * then the controls, an enhancement's heading a level below its base's when both are in it.
+ * Two sections. The first is a title page saying what the file is, then a contents page
+ * linking each control's heading; it carries page numbers, but none on the title page.
+ * The second is the controls, an enhancement's heading a level below its base's when both
+ * are in it, under a running header naming the control on the page.
  */
-export async function writeDocx(record: ExportRecord): Promise<Buffer> {
+export async function writeDocx(
+  record: ExportRecord,
+  meta: ExportMeta,
+): Promise<Buffer> {
   const links = new Links();
   const numbering = new Numbering();
   const bases = new Set(record.controls.map((c) => c.id));
   const nested = (c: ExportControl) => !!c.baseId && bases.has(c.baseId);
+  const contentsId = record.controls.length;
   const body = [
     paragraph(run(record.catalog), { style: "Title" }),
-    heading("Contents", 1),
-    ...record.controls.map((c) =>
+    ...aboutRows(record, meta).map((r) =>
       paragraph(
-        `<w:hyperlink w:anchor="${bookmarkFor(c.id)}" w:history="1">${run(`${c.id} ${c.name}`, { link: true })}</w:hyperlink>`,
-        { indent: nested(c) ? 360 : undefined },
+        run(`${r.label}: `, { bold: true }) +
+          (r.link
+            ? links.external(r.link, r.value)
+            : r.value
+                .split("\n")
+                .map((line) => run(line))
+                .join(BREAK)),
       ),
     ),
-    heading("Controls", 1, { pageBreakBefore: true }),
+    paragraph(
+      `<w:bookmarkStart w:id="${contentsId}" w:name="${CONTENTS}"/>${run("Contents")}<w:bookmarkEnd w:id="${contentsId}"/>`,
+      { style: "Heading1", pageBreakBefore: true },
+    ),
+    ...record.controls.map((c) =>
+      paragraph(anchorLink(bookmarkFor(c.id), `${c.id} ${c.name}`), {
+        indent: nested(c) ? 360 : undefined,
+      }),
+    ),
+    `<w:p><w:pPr><w:sectPr><w:footerReference w:type="default" r:id="rIdF"/>${PAGE}<w:titlePg/></w:sectPr></w:pPr></w:p>`,
+    heading("Controls", 1),
     ...record.controls.flatMap((c, i) =>
       controlBlock(
         c,
@@ -394,26 +474,28 @@ export async function writeDocx(record: ExportRecord): Promise<Buffer> {
         nested(c),
         bases,
         !!record.zeroTrustFiltered,
+        meta.appUrl,
       ),
     ),
   ].join("");
 
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document ${W}><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+<w:document ${W}><w:body>${body}<w:sectPr><w:headerReference w:type="default" r:id="rIdH"/><w:footerReference w:type="default" r:id="rIdF"/>${PAGE}</w:sectPr></w:body></w:document>`;
 
   const files = {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
     "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`,
-    "docProps/core.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(record.catalog)}</dc:title><dc:language>en-US</dc:language></cp:coreProperties>`,
+    "docProps/core.xml": corePropertiesXml(record, meta),
     "word/document.xml": document,
     "word/styles.xml": STYLES,
     "word/numbering.xml": numbering.xml(),
     "word/settings.xml": SETTINGS,
+    "word/header1.xml": HEADER,
+    "word/footer1.xml": FOOTER,
     "word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdN" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rIdT" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>${links.relationships()}</Relationships>`,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdN" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rIdT" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rIdH" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rIdF" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>${links.relationships()}</Relationships>`,
   };
   // A fixed modification time keeps the package bytes stable for one record.
   const zipped = zipSync(

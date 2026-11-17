@@ -118,17 +118,29 @@ const IDENTITY_QUERY: FilterQuery = {
   q: "",
 };
 
-function control(overrides: Partial<NistControl> = {}): NistControl {
+function control(
+  overrides: Partial<NistControl> & {
+    pillars?: string[];
+    maturities?: string[];
+  } = {},
+): NistControl {
+  const {
+    pillars = ["IDENTITY"],
+    maturities = ["ADVANCED"],
+    ...rest
+  } = overrides;
   return {
     id: "AC-02",
     oscalId: "ac-2",
     name: "Account Management",
     status: "zero-trust-aligned",
     family: "AC",
-    pillars: ["IDENTITY"],
-    maturities: ["ADVANCED"],
+    // One row for each pillar at each maturity.
+    zeroTrust: pillars.flatMap((pillar) =>
+      maturities.map((maturity) => ({ pillar, maturity })),
+    ),
     functions: [],
-    ...overrides,
+    ...rest,
   };
 }
 

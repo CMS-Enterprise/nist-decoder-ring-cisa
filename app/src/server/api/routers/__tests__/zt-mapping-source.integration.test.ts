@@ -109,8 +109,10 @@ describe("the Zero Trust mapping follows CISA's control mapping", () => {
     // The layer cake's designation filter reads the same tuples.
     const { families } = await caller.decoder.getBridgeData();
     expect(
-      families.flatMap((f) => f.controls).find((c) => c.id === "AC-06")
-        ?.designations,
+      families
+        .flatMap((f) => f.controls)
+        .find((c) => c.id === "AC-06")
+        ?.zeroTrust.map((r) => r.designation),
     ).toContain("KEY");
     expect(
       await db.zTMappingAffinity.count({ where: { designation: null } }),

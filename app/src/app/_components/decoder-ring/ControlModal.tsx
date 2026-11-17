@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { useQueryStates } from "nuqs";
 import {
   Clipboard,
@@ -31,7 +31,11 @@ import {
 import { STANDARD_SLOTS } from "~/config/product-slots";
 import { parseAsEnhancement, parseAsItem } from "./filterParams";
 import { partPath } from "./lineage-text";
+import { chipFor } from "./chipFor";
+import { useDialogFocus } from "./useDialogFocus";
 import { useEscape } from "./useEscape";
+import { useDecoderQuery } from "./useDecoderQuery";
+import { matchingEnhancements } from "./filterPredicate";
 import { InfoToggle, type InfoContent } from "./info-toggle";
 import {
   ReferenceLinks,
@@ -868,6 +872,12 @@ function enhancementLabel(id: string): string {
   return match ? `(${match[1]})` : id;
 }
 
+/** "(01)", "(01) and (03)", "(01), (02) and (03)". */
+const listLabels = (labels: string[]) =>
+  labels.length > 1
+    ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`
+    : (labels[0] ?? "");
+
 // ---------------------------------------------------------------------------
 // Main modal
 // ---------------------------------------------------------------------------
@@ -904,6 +914,11 @@ export default function ControlModal({
 }: ControlModalProps) {
   const [copied, setCopied] = useState(false);
   useEscape(onClose);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The chip of the control this dialog opened on, so a dialog opened by a click,
+  // which leaves no chip focused, still gives focus back to it on close.
+  useDialogFocus(dialogRef, () => chipFor(control.id));
+  const titleId = useId();
   // The open tab is the address's `?enh`, so Back and Forward walk the tabs a reader
   // picked and a link can open on one. null is the base tab. `?item` is the statement
   // item a successor link highlighted, by its path (`k`). The two are written together,
@@ -924,6 +939,28 @@ export default function ControlModal({
   const enhancements = detailData?.enhancements ?? [];
 
   const hasEnhancements = enhancements.length > 0;
+
+  // The enhancements the diagram's filters match, as the diagram matches through them:
+  // live ones only.
+  const { query } = useDecoderQuery();
+  const matched = new Set(
+    matchingEnhancements(
+      {
+        enhancements: enhancements
+          .filter((e) => e.catalogStatus !== "withdrawn")
+          .map((e) => ({
+            id: e.id,
+            zeroTrust: e.ztMapping
+              ? e.ztMapping.affinities?.length
+                ? e.ztMapping.affinities
+                : [e.ztMapping]
+              : [],
+            baselines: e.baselines ?? [],
+          })),
+      },
+      query,
+    ),
+  );
 
   // The tab `?enh` names, if this control has it. One it doesn't have shows the base tab.
   // The server redirects those away, so this is a fallback; it also covers the moment
@@ -1040,9 +1077,15 @@ export default function ControlModal({
       // Which control is showing, for the accessibility scan to wait on after a
       // cross-reference, when the previous control's content is still on screen.
       data-control-id={control.id}
-      className="animate-in fade-in bg-scrim/70 fixed inset-0 z-50 flex items-stretch p-4 backdrop-blur-sm duration-200 md:p-6"
+      className="bg-scrim/70 fixed inset-0 z-50 flex items-stretch p-4 backdrop-blur-sm md:p-6"
     >
-      <div className="border-border bg-surface relative flex w-full flex-col overflow-hidden rounded-xl border shadow-2xl md:flex-row">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="border-border bg-surface relative flex w-full flex-col overflow-hidden rounded-xl border shadow-2xl md:flex-row"
+      >
         {/* LEFT PANE: the control */}
         <div className="border-highlight-edge bg-surface-statement relative w-full overflow-y-auto border-r p-6 md:w-3/5 md:p-8">
           <div className="from-highlight-edge to-highlight absolute top-0 left-0 h-1 w-full bg-gradient-to-r"></div>
@@ -1058,7 +1101,12 @@ export default function ControlModal({
 
           <div className="mb-1 flex items-baseline justify-between">
             <div className="flex items-baseline gap-3">
-              <h2 className="text-ink text-4xl font-extrabold">
+              <h2
+                id={titleId}
+                data-dialog-start
+                tabIndex={-1}
+                className="text-ink text-4xl font-extrabold outline-none"
+              >
                 {activeDetail?.id ?? control.id}
               </h2>
               <LineageChip
@@ -1081,6 +1129,7 @@ export default function ControlModal({
             <>
               {!detailData?.ztMapping &&
                 !onEnhancement &&
+                matched.size === 0 &&
                 enhancements.some((e) => e.ztMapping) && (
                   <div className="border-zt-muted bg-zt-subtle text-zt mb-3 flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                     <span className="font-semibold">
@@ -1091,6 +1140,17 @@ export default function ControlModal({
                     </span>
                   </div>
                 )}
+              {matched.size > 0 && (
+                <p className="border-zt-muted bg-zt-subtle text-zt mb-3 rounded-md border px-3 py-2 text-sm font-semibold">
+                  Your Zero Trust filters match{" "}
+                  {matched.size > 1 ? "enhancements" : "enhancement"}{" "}
+                  {listLabels(
+                    enhancements
+                      .filter((e) => matched.has(e.id))
+                      .map((e) => enhancementLabel(e.id)),
+                  )}
+                </p>
+              )}
               <div className="mb-4 flex flex-wrap gap-1.5">
                 <button
                   onClick={() => selectTab(null)}
@@ -1144,6 +1204,7 @@ export default function ControlModal({
                                 .join(" "),
                               enh.ztMapping && "Zero Trust mapped",
                               added && `new in ${added.release}`,
+                              matched.has(enh.id) && "matches your filters",
                             ]
                               .filter(Boolean)
                               .join(", ")
@@ -1180,6 +1241,11 @@ export default function ControlModal({
                             new
                           </span>
                         </>
+                      )}
+                      {matched.has(enh.id) && (
+                        <span aria-hidden="true" className="ml-1">
+                          ✓
+                        </span>
                       )}
                     </button>
                   );

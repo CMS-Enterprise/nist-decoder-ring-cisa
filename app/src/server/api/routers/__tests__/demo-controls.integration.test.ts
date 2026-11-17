@@ -67,10 +67,13 @@ describe("the five demo controls on the layer cake", () => {
     expect(card("CA-03").status).toBe("zero-trust-aligned");
     expect(card("SR-04").status).toBe("zt-via-enhancements");
     expect(card("IA-13").status).toBe("compliance");
-    // Designation → Informative keeps CA-03 and drops AC-02 and SI-02.
-    expect(card("CA-03").designations).toEqual(["INFORMATIVE"]);
-    expect(card("AC-02").designations).not.toContain("INFORMATIVE");
-    expect(card("SI-02").designations).not.toContain("INFORMATIVE");
+    // Designation → Informative: CA-03's own rows are all Informative; AC-02 and SI-02 have none.
+    const designationsOf = (id: string) => [
+      ...new Set(card(id).zeroTrust.map((r) => r.designation)),
+    ];
+    expect(designationsOf("CA-03")).toEqual(["INFORMATIVE"]);
+    expect(designationsOf("AC-02")).not.toContain("INFORMATIVE");
+    expect(designationsOf("SI-02")).not.toContain("INFORMATIVE");
     // Baseline → In no baseline keeps SR-04 and IA-13.
     expect(card("SR-04").baselines).toEqual([]);
     expect(card("IA-13").baselines).toEqual([]);

@@ -52,8 +52,7 @@ const AC_02 = {
   name: "Account Management",
   status: "zero-trust-aligned",
   family: "AC",
-  pillars: ["IDENTITY"],
-  maturities: ["ADVANCED"],
+  zeroTrust: [{ pillar: "IDENTITY", maturity: "ADVANCED" }],
   functions: [],
 };
 

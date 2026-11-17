@@ -167,11 +167,11 @@ describe("SearchTypeahead", () => {
     await waitFor(() => {
       expect(screen.getByText("AC-02")).toBeInTheDocument();
     });
-    expect(screen.getByRole("link", { name: /AC-02/ })).toHaveAttribute(
+    expect(screen.getByRole("option", { name: /AC-02/ })).toHaveAttribute(
       "href",
       "/control/AC-02?pillar=IDENTITY",
     );
-    expect(screen.getByRole("link", { name: /AC-03/ })).toHaveAttribute(
+    expect(screen.getByRole("option", { name: /AC-03/ })).toHaveAttribute(
       "href",
       "/control/AC-03?pillar=IDENTITY",
     );
@@ -185,7 +185,7 @@ describe("SearchTypeahead", () => {
     await waitFor(() => {
       expect(screen.getByText("AC-02")).toBeInTheDocument();
     });
-    const link = screen.getByRole("link", { name: /AC-02/ });
+    const link = screen.getByRole("option", { name: /AC-02/ });
 
     // A cancelled mouse-down keeps focus in the input, so its onBlur doesn't close the
     // dropdown before the click lands.
@@ -214,7 +214,7 @@ describe("SearchTypeahead", () => {
       const cancelPageLoad = (e: Event) => e.preventDefault();
       document.addEventListener("click", cancelPageLoad);
       try {
-        fireEvent.click(screen.getByRole("link", { name: /AC-02/ }), {
+        fireEvent.click(screen.getByRole("option", { name: /AC-02/ }), {
           [modifier]: true,
         });
       } finally {
@@ -235,7 +235,7 @@ describe("SearchTypeahead", () => {
       expect(screen.getByText("AC-02")).toBeInTheDocument();
     });
     for (const name of [/AC-02/, /AC-03/]) {
-      expect(screen.getByRole("link", { name })).toHaveAttribute(
+      expect(screen.getByRole("option", { name })).toHaveAttribute(
         "data-prefetch",
         "false",
       );
@@ -360,5 +360,273 @@ describe("SearchTypeahead", () => {
     await waitFor(() => {
       expect(input).toHaveValue("");
     });
+  });
+});
+
+describe("SearchTypeahead under a Zero Trust filter", () => {
+  const controls = [
+    {
+      id: "AC-02",
+      name: "Account Management",
+      status: "zt-via-enhancements",
+      family: "AC",
+      zeroTrust: [],
+      enhancements: [
+        {
+          id: "AC-02(01)",
+          name: "Automated System Account Management",
+          zeroTrust: [
+            { pillar: "IDENTITY", maturity: "ADVANCED", designation: "KEY" },
+          ],
+        },
+        {
+          id: "AC-02(03)",
+          name: "Disable Accounts",
+          zeroTrust: [
+            { pillar: "DATA", maturity: "OPTIMAL", designation: "INFORMATIVE" },
+          ],
+        },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    mockUseQuery = vi.fn(() => ({
+      data: { hits: HITS, matchingIds: HITS.map((h) => h.controlNumber) },
+    }));
+  });
+
+  it("lists each matching enhancement after its base, linked to its own tab", async () => {
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?designation=KEY" }),
+    });
+    await typeAndSettle("ac");
+
+    const link = await screen.findByRole("option", {
+      name: "AC-02(01) Automated System Account Management, enhancement, matches filters",
+    });
+    expect(link).toHaveAttribute("href", "/control/AC-02(01)?pillar=IDENTITY");
+    expect(screen.queryByText("AC-02(03)")).toBeNull();
+    const ids = screen
+      .getAllByRole("option")
+      .map((a) => a.querySelector(".font-semibold")?.textContent);
+    expect(ids).toEqual(["AC-02", "AC-02(01)", "AC-03"]);
+  });
+
+  it("lists at most 25 enhancements", async () => {
+    const many = [
+      {
+        ...controls[0]!,
+        enhancements: Array.from({ length: 30 }, (_, i) => ({
+          id: `AC-02(${String(i + 1).padStart(2, "0")})`,
+          name: `Enhancement ${i + 1}`,
+          zeroTrust: [
+            { pillar: "IDENTITY", maturity: "ADVANCED", designation: "KEY" },
+          ],
+        })),
+      },
+    ];
+    render(<SearchTypeahead hrefFor={hrefFor} controls={many} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    await typeAndSettle("ac");
+    await screen.findByText("AC-02(01)");
+    expect(screen.getAllByText(/^enhancement, matches filters$/)).toHaveLength(
+      25,
+    );
+  });
+
+  it("keeps a listed base's enhancements within the cap", async () => {
+    const row = {
+      pillar: "IDENTITY",
+      maturity: "ADVANCED",
+      designation: "KEY",
+    };
+    // AU-02 is no hit, but 30 of its enhancements match "audit" by name, ahead of AC-02's.
+    const crowded = [
+      {
+        id: "AU-02",
+        name: "Event Logging",
+        status: "zt-via-enhancements",
+        family: "AU",
+        zeroTrust: [],
+        enhancements: Array.from({ length: 30 }, (_, i) => ({
+          id: `AU-02(${String(i + 1).padStart(2, "0")})`,
+          name: `Audit ${i + 1}`,
+          zeroTrust: [row],
+        })),
+      },
+      {
+        ...controls[0]!,
+        enhancements: [{ id: "AC-02(01)", name: "One", zeroTrust: [row] }],
+      },
+    ];
+    render(<SearchTypeahead hrefFor={hrefFor} controls={crowded} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    await typeAndSettle("audit");
+    expect(await screen.findByText("AC-02(01)")).toBeInTheDocument();
+    expect(screen.getAllByText(/^enhancement, matches filters$/)).toHaveLength(
+      25,
+    );
+  });
+
+  it("lists no enhancement before the search answers", async () => {
+    mockUseQuery = vi.fn(() => ({ data: undefined }));
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    await typeAndSettle("AC-02(01)");
+    await screen.findByText(/No controls match/);
+    expect(screen.queryByText("AC-02(01)")).toBeNull();
+  });
+
+  it("lists no enhancements without one", async () => {
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "" }),
+    });
+    await typeAndSettle("ac");
+    await screen.findByText("AC-02");
+    expect(screen.queryByText("AC-02(01)")).toBeNull();
+  });
+
+  it("shows a matching enhancement when the search has no base hit", async () => {
+    mockUseQuery = vi.fn(() => ({ data: { hits: [], matchingIds: [] } }));
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    await typeAndSettle("AC-02(01)");
+    expect(await screen.findByText("AC-02(01)")).toBeInTheDocument();
+    expect(screen.queryByText(/No controls match/)).toBeNull();
+    // Its base isn't listed, so it isn't drawn as if under another control.
+    expect(screen.getByRole("option")).toHaveClass("pl-3");
+  });
+
+  it("lists no enhancement for a withdrawn result, which the diagram does not hold", async () => {
+    mockUseQuery = vi.fn(
+      (input: { q: string; includeWithdrawn?: boolean }) => ({
+        data: {
+          hits: input.includeWithdrawn
+            ? [
+                {
+                  controlNumber: "AC-13",
+                  controlName: "Supervision and Review",
+                  matchedIn: "id",
+                  withdrawn: true,
+                },
+              ]
+            : [],
+          matchingIds: [],
+        },
+      }),
+    );
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Search withdrawn controls" }),
+    );
+    await typeAndSettle("AC-13");
+    expect(await screen.findByText("AC-13")).toHaveClass("line-through");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.queryByText("enhancement, matches filters")).toBeNull();
+  });
+
+  it("indents an enhancement under its listed base", async () => {
+    render(<SearchTypeahead hrefFor={hrefFor} controls={controls} />, {
+      wrapper: withNuqsTestingAdapter({ searchParams: "?pillar=IDENTITY" }),
+    });
+    await typeAndSettle("ac");
+    const option = await screen.findByRole("option", { name: /^AC-02\(01\)/ });
+    expect(option).toHaveClass("pl-6");
+  });
+});
+
+describe("SearchTypeahead as a combobox", () => {
+  beforeEach(() => {
+    mockUseQuery = vi.fn(() => ({
+      data: { hits: HITS, matchingIds: HITS.map((h) => h.controlNumber) },
+    }));
+  });
+
+  it("names its list and says whether it is open", async () => {
+    renderTypeahead();
+    const box = screen.getByRole("combobox", { name: "Search controls" });
+    expect(box).toHaveAttribute("aria-expanded", "false");
+    await typeAndSettle("ac");
+    await screen.findByRole("listbox", { name: "Search results" });
+    expect(box).toHaveAttribute("aria-expanded", "true");
+    expect(box).toHaveAttribute(
+      "aria-controls",
+      screen.getByRole("listbox").id,
+    );
+  });
+
+  it("marks results with the arrow keys, wrapping at each end", async () => {
+    renderTypeahead();
+    const box = await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    const [first, second] = screen.getAllByRole("option");
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    expect(box).toHaveAttribute("aria-activedescendant", first!.id);
+    expect(first).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    expect(box).toHaveAttribute("aria-activedescendant", second!.id);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    expect(box).toHaveAttribute("aria-activedescendant", first!.id);
+    fireEvent.keyDown(box, { key: "ArrowUp" });
+    expect(box).toHaveAttribute("aria-activedescendant", second!.id);
+  });
+
+  it("opens the marked result on Enter", async () => {
+    renderTypeahead();
+    const box = await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    const clicked = vi.fn((e: Event) => e.preventDefault());
+    screen.getAllByRole("option")[1]!.addEventListener("click", clicked);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the arrow keys and Enter to an input method while it composes", async () => {
+    renderTypeahead();
+    const box = await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    const clicked = vi.fn((e: Event) => e.preventDefault());
+    screen.getAllByRole("option")[0]!.addEventListener("click", clicked);
+    fireEvent.keyDown(box, { key: "ArrowDown", isComposing: true });
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
+  it("closes on Escape", async () => {
+    renderTypeahead();
+    const box = await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(box).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("stays open while focus moves within it, and closes once focus leaves", async () => {
+    renderTypeahead();
+    const box = await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    fireEvent.blur(box, { relatedTarget: screen.getAllByRole("option")[0] });
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    fireEvent.blur(box, { relatedTarget: document.body });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("keeps the results out of the tab order", async () => {
+    renderTypeahead();
+    await typeAndSettle("ac");
+    await screen.findByRole("listbox");
+    for (const option of screen.getAllByRole("option"))
+      expect(option).toHaveAttribute("tabindex", "-1");
   });
 });

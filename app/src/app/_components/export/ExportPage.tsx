@@ -15,7 +15,11 @@ import { isQueryActive } from "~/app/_components/decoder-ring/filterPredicate";
 import { FILTER_PARSERS } from "~/app/_components/decoder-ring/queryParsers";
 import { useDecoderQuery } from "~/app/_components/decoder-ring/useDecoderQuery";
 import { LINE_DATASETS, LINE_FIELDS } from "~/lib/export/from-detail";
-import type { ExportDataset, ExportField } from "~/lib/export/record";
+import {
+  DATASET_LABELS,
+  ENHANCEMENT_LABELS,
+  FIELD_LABELS,
+} from "~/lib/export/labels";
 import {
   droppedExportValues,
   EXPORT_ENHANCEMENTS,
@@ -39,26 +43,6 @@ const toDiagram = createSerializer(FILTER_PARSERS);
 const RAW_PARSERS = Object.fromEntries(
   Object.keys(PAGE_PARSERS).map((k) => [k, parseAsString]),
 ) as Record<keyof typeof PAGE_PARSERS, typeof parseAsString>;
-
-const DATASET_LABELS: Record<ExportDataset, string> = {
-  statement: "Statement, parameters and discussion",
-  assessment: "Assessment procedures",
-  zeroTrust: "Zero Trust guidance",
-  references: "References",
-};
-const FIELD_LABELS: Record<ExportField, string> = {
-  baselines: "Baselines",
-  frequency: "Frequency",
-  priority: "Priority",
-  lineage: "Withdrawn status and lineage",
-  related: "Related controls",
-};
-const ENHANCEMENT_LABELS: Record<(typeof EXPORT_ENHANCEMENTS)[number], string> =
-  {
-    with: "Each control with its enhancements",
-    without: "Base controls only",
-    only: "Only their enhancements",
-  };
 
 /** Past this many controls a DOCX is long enough that the page suggests the spreadsheet. */
 export const LARGE_DOCX = 200;
@@ -229,7 +213,7 @@ export default function ExportPage() {
           hint={
             picked
               ? "Picks are exported as they are; the filters below do not apply while there are picks."
-              : "Filter the catalog as the main view does. With no filter, every current control is exported; pick a withdrawn control to export it. A pillar, maturity or designation filter also limits each control's Zero Trust rows to the ones that match all of those filters, so a control can be left with none."
+              : "Filter the catalog as the main view does. With no filter, every current control is exported; pick a withdrawn control to export it. A pillar, maturity or designation filter exports the controls and enhancements with a Zero Trust row matching all of those filters, each with only those rows."
           }
         >
           {/* Inert, not only dimmed: a filter that cannot apply takes no clicks or focus. */}

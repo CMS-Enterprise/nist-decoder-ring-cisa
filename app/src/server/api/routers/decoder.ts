@@ -13,9 +13,11 @@ import {
   isIdentifierQuery,
   isQueryActive,
   matchesQuery,
-  type FilterQuery,
   normalizeControlId,
+  ownRowPasses,
   passesFacets,
+  rowPasses,
+  type ZeroTrustRow,
 } from "~/app/_components/decoder-ring/filterPredicate";
 import {
   LINE_DATASETS,
@@ -684,18 +686,20 @@ interface FilterableControl {
   name: string;
   status: BridgeStatus;
   family: string; // family code, e.g. "AC"
-  // Filter dimensions sourced from the per-tuple ZTMappingAffinity rows (the full
-  // set, not the representative mapping) so multi-pillar/maturity controls don't
-  // mis-bucket. Values are the enum strings the URL filter compares against.
-  pillars: string[];
-  maturities: string[];
+  // Filter rows from the per-tuple ZTMappingAffinity rows (the full set, not the
+  // representative mapping), so the Zero Trust facets match on one row.
+  zeroTrust: ZeroTrustRow[];
+  enhancements: Array<{
+    id: string;
+    name: string;
+    zeroTrust: ZeroTrustRow[];
+    baselines: string[];
+  }>;
   /** The catalog baselines that include the control, as the catalog spells them. */
   baselines: string[];
   /** Every baseline that includes at least one of its enhancements. */
   enhancementBaselines: string[];
   functions: string[];
-  /** CISA's designations across the control's tuples (KEY, SUPPORTING, INFORMATIVE). */
-  designations: string[];
   ztMapping?: {
     pillar: string;
     function: string;
@@ -712,24 +716,42 @@ interface BridgeFamily {
 
 const unique = <T>(xs: T[]): T[] => Array.from(new Set(xs));
 
-/** A Zero Trust row passes the pillar, maturity and designation facets when it is in every active one. */
-const tuplePasses = (
-  t: { pillar: string; maturity: string; designation?: string | null },
-  query: Pick<FilterQuery, "pillar" | "maturity" | "designation">,
-) =>
-  // A mapping with no affinity rows exports one row naming its pillars joined.
-  (!query.pillar.length ||
-    t.pillar.split(", ").some((p) => query.pillar.includes(p))) &&
-  (!query.maturity.length || query.maturity.includes(t.maturity)) &&
-  (!query.designation.length ||
-    (!!t.designation && query.designation.includes(t.designation)));
+/** A mapping's Zero Trust rows: its affinity rows, or one naming its pillars joined, as the export writes them. */
+function ztRowsOf(
+  zt:
+    | {
+        pillars: string[];
+        maturityLevel: string;
+        affinities: Array<{
+          pillar: string;
+          maturity: string;
+          designation: string | null;
+        }>;
+      }
+    | null
+    | undefined,
+): ZeroTrustRow[] {
+  if (!zt) return [];
+  if (zt.affinities.length)
+    return zt.affinities.map((a) => ({
+      pillar: a.pillar,
+      maturity: a.maturity,
+      designation: a.designation,
+    }));
+  return [
+    {
+      pillar: zt.pillars.join(", "),
+      maturity: zt.maturityLevel,
+      designation: null,
+    },
+  ];
+}
 
 /**
  * Every live base control with its filter dimensions, in family then catalog order. The
  * layer cake groups these; the export filters them with the same predicate the diagram
- * uses. pillars/maturities/functions come from the per-tuple ZTMappingAffinity rows (not
- * the representative mapping) so multi-pillar/maturity controls carry their full set and
- * don't mis-bucket.
+ * uses. Their Zero Trust rows and functions come from the per-tuple ZTMappingAffinity rows
+ * (not the representative mapping), so a filter matches on a row the control has.
  */
 async function loadBridgeControls(
   prisma: typeof db,
@@ -752,7 +774,13 @@ async function loadBridgeControls(
       // control through them.
       children: {
         where: { status: "LIVE" },
-        select: { baselineLabels: true, ztMapping: { select: { id: true } } },
+        select: {
+          controlNumber: true,
+          controlName: true,
+          baselineLabels: true,
+          ztMapping: { include: { affinities: true } },
+        },
+        orderBy: { sortId: "asc" },
       },
     },
     orderBy: [{ controlFamilyId: "asc" }, { sortId: "asc" }],
@@ -778,27 +806,12 @@ async function loadBridgeControls(
     // Filter dimensions from the per-tuple affinity rows (fall back to the
     // representative mapping when a ZT control has no affinity breakout).
     const affinities = zt?.affinities ?? [];
-    const pillars: string[] = unique(
-      affinities.length ? affinities.map((a) => a.pillar) : (zt?.pillars ?? []),
-    );
-    const maturities: string[] = unique(
-      affinities.length
-        ? affinities.map((a) => a.maturity)
-        : zt
-          ? [zt.maturityLevel]
-          : [],
-    );
     const functions: string[] = unique(
       affinities.length
         ? affinities.map((a) => a.function)
         : zt
           ? [zt.function]
           : [],
-    );
-    // A tuple CISA has not designated contributes nothing here, so no designation
-    // filter matches it.
-    const designations: string[] = unique(
-      affinities.flatMap((a) => (a.designation ? [a.designation] : [])),
     );
 
     return {
@@ -808,10 +821,21 @@ async function loadBridgeControls(
       status,
       family: control.controlFamilyId,
       familyName: control.controlFamily.name,
-      pillars,
-      maturities,
+      zeroTrust: ztRowsOf(zt),
+      // Only mapped enhancements: one without Zero Trust rows never matches a ZT facet.
+      enhancements: enhancements.flatMap((e) =>
+        e.ztMapping
+          ? [
+              {
+                id: e.controlNumber,
+                name: e.controlName,
+                zeroTrust: ztRowsOf(e.ztMapping),
+                baselines: e.baselineLabels ?? [],
+              },
+            ]
+          : [],
+      ),
       functions,
-      designations,
       baselines: control.baselineLabels ?? [],
       enhancementBaselines: unique(
         enhancements.flatMap((e) => e.baselineLabels ?? []),
@@ -889,9 +913,9 @@ export const decoderRouter = createTRPCRouter({
    * Bridge data: every base control with its filter dimensions, grouped by family.
    * Filtering and the mountain layout are client concerns — the URL filter state
    * narrows this set and arrangeMountain() orders the families — so this returns the
-   * full, filter-ready dataset. pillars/maturities/functions come from the per-tuple
-   * ZTMappingAffinity rows (not the representative mapping) so multi-pillar/maturity
-   * controls carry their full set and don't mis-bucket.
+   * full, filter-ready dataset. Zero Trust rows and functions come from the per-tuple
+   * ZTMappingAffinity rows (not the representative mapping), so a filter matches on a
+   * row the control has.
    */
   getBridgeData: publicProcedure.query(async ({ ctx }) => {
     // Get the active catalog version
@@ -1384,32 +1408,21 @@ async function selectExportRows(
   )) as unknown as Array<ExportRow>;
 
   // A facet the enhancement carries itself (baseline, pillar, maturity, designation)
-  // applies to it as well as to its base; status and search describe the base, as in
-  // the diagram. Picks are exact: the facets are not applied to them or what they bring.
+  // applies to it as well as to its base; status and search describe the base, as in the
+  // diagram. Under a pillar, maturity or designation filter a base matched only through
+  // its enhancements is left out, so the file holds just the controls whose own rows
+  // match. Picks are exact: the facets are not applied to them or what they bring.
   return rows.filter((row) => {
-    if (!filtersEnhancements || !row.parentControl) return true;
-    const affinities = row.ztMapping?.affinities ?? [];
+    if (!filtersEnhancements) return true;
+    const zeroTrust = ztRowsOf(row.ztMapping);
+    if (!row.parentControl) return ownRowPasses({ zeroTrust }, facets);
     return passesFacets(
       {
         id: row.controlNumber,
         name: row.controlName,
         status: "",
         family: familyOf(row.controlNumber),
-        pillars: unique(
-          affinities.length
-            ? affinities.map((a) => a.pillar)
-            : (row.ztMapping?.pillars ?? []),
-        ),
-        maturities: unique(
-          affinities.length
-            ? affinities.map((a) => a.maturity)
-            : row.ztMapping
-              ? [row.ztMapping.maturityLevel]
-              : [],
-        ),
-        designations: unique(
-          affinities.flatMap((a) => (a.designation ? [a.designation] : [])),
-        ),
+        zeroTrust,
         baselines: row.baselineLabels,
       },
       facets,
@@ -1470,6 +1483,7 @@ export const exportRouter = createTRPCRouter({
 
         return {
           catalog: activeVersion.displayLabel,
+          catalogVersion: activeVersion.version,
           versionId: activeVersion.id,
           datasets,
           fields,
@@ -1494,7 +1508,7 @@ export const exportRouter = createTRPCRouter({
               ? {
                   ...control,
                   zeroTrust: control.zeroTrust.filter((t) =>
-                    tuplePasses(t, input),
+                    rowPasses(t, input),
                   ),
                 }
               : control;

@@ -20,7 +20,8 @@ defaults:
   standard: wcag22aa
   # The cake's links render once the seeded catalog has loaded.
   waitFor: '[id^="family-"] a[href^="/control/"]'
-  timeout: 60s
+  # The cake's keyboard audit presses Tab through every chip, ~150ms each.
+  timeout: 120s
   # Serious or worse fails, unless the baseline lists it.
   expect:
     severity: serious
@@ -29,9 +30,15 @@ defaults:
 # --baseline with the mounted path instead, so this line only names the file.
 baseline: baseline.json
 
+# Keyboard audits (keyboard: below) press Tab through a state for traps, controls Tab
+# never reaches, and focus that does not show. Each page and the modal get one, in both
+# themes, since a focus ring's contrast is the theme's. The filtered cakes repeat the
+# cake's chips, and Tab closes the search's list, so neither has one.
 tests:
   - id: cake
     path: /
+    # The cake holds several hundred chips; the default stops at 300 Tabs.
+    keyboard: { maxTabs: 1000 }
 
   - id: cake-filtered
     path: /?pillar=IDENTITY
@@ -60,27 +67,35 @@ tests:
     steps:
       - click: 'a[href="/control/IA-02"]'
       - waitFor: '[data-control-id="IA-02"] [data-testid="assessment-procedures"]'
+      # Opening moves focus into the dialog.
+      - expectFocus: { label: open, within: '[data-control-id="IA-02"]' }
       - scan:
           label: open
           scope: '[data-control-id="IA-02"]'
+      - keyboard: { label: open, scope: '[data-control-id="IA-02"]' }
       - click: 'button[data-control-ref="ia-8"]'
       - waitFor: '[data-control-id="IA-08"] [data-testid="assessment-procedures"]'
       - scan:
           label: cross-reference
           scope: '[data-control-id="IA-08"]'
+      # Closing gives focus back to the chip that opened the first control. By its
+      # selector, not its name: the name carries the chip's mapping status.
+      - press: Escape
+      - waitFor: "body:not(:has([data-control-id]))"
+      - expectFocus: { label: closed, within: 'a[href="/control/IA-02"]' }
 
   # The export page, then the same page with a control picked. Not scoped: it has no
   # cake behind it.
   - id: export
     path: /export
     waitFor: 'input[placeholder^="Control number or name"]'
+    keyboard: true
     steps:
       - fill: { 'input[placeholder^="Control number or name"]': AC-02 }
       - press: Enter
       - waitFor: 'button[aria-label="Remove AC-02"]'
       - scan:
           label: picked
-
 
   # Dark twins: each state above again in the dark theme. Each chooses Dark in the
   # header's Theme control, which stores it, then loads its page again (goto waits for the
@@ -96,6 +111,7 @@ tests:
       - goto: /
       - scan:
           label: dark
+      - keyboard: { label: dark, maxTabs: 1000 }
 
   - id: cake-filtered-dark
     path: /?pillar=IDENTITY
@@ -132,6 +148,7 @@ tests:
       - scan:
           label: open
           scope: '[data-control-id="IA-02"]'
+      - keyboard: { label: open, scope: '[data-control-id="IA-02"]' }
       - click: 'button[data-control-ref="ia-8"]'
       - waitFor: '[data-control-id="IA-08"] [data-testid="assessment-procedures"]'
       - scan:
@@ -150,6 +167,7 @@ tests:
       - waitFor: 'input[placeholder^="Control number or name"]'
       - scan:
           label: dark
+      - keyboard: { label: dark }
       - fill: { 'input[placeholder^="Control number or name"]': AC-02 }
       - press: Enter
       - waitFor: 'button[aria-label="Remove AC-02"]'

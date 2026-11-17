@@ -10,7 +10,11 @@ import {
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import type { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import FamilyColumn, { ZT_STATES } from "./FamilyColumn";
-import { matchesQuery, type FilterQuery } from "./filterPredicate";
+import {
+  matchesQuery,
+  type FilterQuery,
+  type ZeroTrustRow,
+} from "./filterPredicate";
 import { product } from "~/config/product";
 
 /**
@@ -37,11 +41,14 @@ export interface NistControl {
     | "zt-aligned-with-enhancements"
     | "zt-via-enhancements";
   family: string;
-  pillars: string[];
-  maturities: string[];
+  zeroTrust: ZeroTrustRow[];
+  enhancements?: Array<{
+    id: string;
+    name?: string;
+    zeroTrust: ZeroTrustRow[];
+    baselines?: string[];
+  }>;
   functions: string[];
-  /** CISA's designations across the control's tuples. */
-  designations?: string[];
   /** The catalog baselines that include the control. */
   baselines?: string[];
   ztMapping?: {
@@ -292,6 +299,20 @@ export default function LayerCakeVisualization({
     const at = readersMouse(e);
     if (at) pan.current = { x: at.clientX, y: at.clientY, moved: false };
   };
+  // An outline scales with the cake, so at the overview zoom a chip's 2px focus ring
+  // renders under a pixel (2.4.7). Chips divide their ring by this to keep it 2px on
+  // screen. Set on the element, not in state, so panning re-renders nothing.
+  // Only on a change of scale: a pan fires this every frame, and rewriting an
+  // inherited property restyles every chip.
+  const publishedScale = useRef<number | null>(null);
+  const publishScale = (ref: ReactZoomPanPinchRef) => {
+    if (ref.state.scale === publishedScale.current) return;
+    publishedScale.current = ref.state.scale;
+    contentRef.current?.style.setProperty(
+      "--cake-scale",
+      String(ref.state.scale),
+    );
+  };
   const onPanning = (_: ReactZoomPanPinchRef, e: MouseEvent | TouchEvent) => {
     const start = pan.current;
     const at = readersMouse(e);
@@ -389,6 +410,8 @@ export default function LayerCakeVisualization({
           smooth
           onPanningStart={onPanningStart}
           onPanning={onPanning}
+          onInit={publishScale}
+          onTransform={publishScale}
         >
           {({ zoomIn, zoomOut }) => (
             <>

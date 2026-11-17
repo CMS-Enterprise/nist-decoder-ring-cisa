@@ -36,7 +36,7 @@ DEV_DB_URL = postgresql://ztdecoder:ztdecoder_dev_password@localhost:5439/$(DEV_
 .PHONY: help \
         preflight check-docker check-env aws-whoami aws-profiles-discover dns-check \
         check-proxy require-proxy _proxy-probe check-version check-deploy-safety local-status local-stop \
-        ci-install ci-install-python ci-test-js ci-test-python test-integration test-seed-checks test-scripts test-api test-pipeline test-browser test-a11y a11y-baseline _browser-build _install-frostfall test-matrix \
+        ci-install ci-install-python ci-test-js ci-test-python test-integration test-seed-checks test-scripts test-api test-pipeline test-browser test-a11y a11y-baseline test-http _browser-build _install-frostfall _install-emberfall test-matrix \
         setup env-auth-secret dev dev-debug _check-port app-check app-audit app-release seed-ecs-local \
         db-up db-down db-restart db-clean db-reset db-shell db-migrate db-push db-studio db-seed db-seed-check db-ready db-generate _db-ensure _db-guard \
         _stop-app-profiles _compose-build _compose-up _compose-logs _image-file-check \
@@ -78,6 +78,7 @@ help:
 	@echo "  test-pipeline         The seed generators, rebuilt offline and checked against the committed seed"
 	@echo "  test-browser          The bridge in a real browser, against the built app and a throwaway Postgres"
 	@echo "  test-a11y             The accessibility scan alone (frostfall); a11y-baseline rewrites its baseline"
+	@echo "  test-http             The HTTP checks alone (emberfall), against the built app"
 	@echo ""
 	@echo "Regenerate seed data"
 	@echo "  zt-overlay            The Zero Trust overlay (09, 11, 13) from the committed CISA mapping"
@@ -1086,8 +1087,9 @@ test-pipeline:
 # how the three are started). Builds the standalone server first, as the runner image does,
 # with its static files beside it, and removes the .env that next build copies in, which
 # the image does not carry either. Needs Docker.
-test-browser: check-docker _install-frostfall _browser-build
-	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" yarn playwright test
+test-browser: check-docker _install-frostfall _install-emberfall _browser-build
+	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" EMBERFALL_BIN="$(CURDIR)/$(EMBERFALL_BIN)" \
+		yarn playwright test
 
 # The accessibility scan alone: app/e2e/a11y.spec.ts, which runs frostfall over the page
 # states in app/e2e/frostfall/frostfall.yml. a11y-baseline rewrites that folder's
@@ -1099,6 +1101,11 @@ test-a11y: check-docker _install-frostfall _browser-build
 a11y-baseline: check-docker _install-frostfall _browser-build
 	cd app && FROSTFALL_BIN="$(CURDIR)/$(FROSTFALL_BIN)" FROSTFALL_UPDATE_BASELINE=1 \
 		yarn playwright test e2e/a11y.spec.ts
+
+# The HTTP checks alone: app/e2e/http.spec.ts, which runs emberfall over the requests in
+# app/e2e/emberfall/emberfall.yml against the app the global setup starts.
+test-http: check-docker _install-emberfall _browser-build
+	cd app && EMBERFALL_BIN="$(CURDIR)/$(EMBERFALL_BIN)" yarn playwright test e2e/http.spec.ts
 
 _browser-build:
 	cd app && SKIP_ENV_VALIDATION=1 NEXT_TELEMETRY_DISABLED=1 yarn build
@@ -1115,11 +1122,11 @@ _browser-build:
 # fetched and checked again rather than run. Moving to a new version means changing all
 # five values. The hash tool is sha256sum where it exists (minimal Linux images have it and
 # no Perl for shasum), else shasum -a 256; both print `hash  file`.
-FROSTFALL_VERSION := 1.4.2
-FROSTFALL_SHA256_Linux_x86_64 := c1434e865637f5bceba55d12d9af8759a11d68262b959f98815928487b929036
-FROSTFALL_SHA256_Linux_arm64 := a18881e8608ee4f10c58682d320dbb0613977c66a2445882521d94024378b987
-FROSTFALL_BIN_SHA256_Linux_x86_64 := 3a64183c802dffed2ad28ef5575f617d66a90b1037dc787ee48b4f9ba9f1852e
-FROSTFALL_BIN_SHA256_Linux_arm64 := 92b65f6240af01ed04e6971cef1e0473edaf788c5e78074185b0574b95bcbf08
+FROSTFALL_VERSION := 1.6.1
+FROSTFALL_SHA256_Linux_x86_64 := 43925281c28f2a1055057001ded04561c68212d7f9de429b32f8347e762ebed4
+FROSTFALL_SHA256_Linux_arm64 := 701883792dcc8cb5250d65e8085f68f2c6443184ab394b25dc2a988a41018bc9
+FROSTFALL_BIN_SHA256_Linux_x86_64 := 978280478a1da0243bd072644a95079dd82dbc919fec4075bc0d508b6bd21828
+FROSTFALL_BIN_SHA256_Linux_arm64 := ce9b8b55bc8d9d010469f3bc8a90524024682beb72452c72caeb409c4e7fe5a2
 FROSTFALL_ARCH = $(if $(filter arm64 aarch64,$(shell docker version --format '{{.Server.Arch}}' 2>/dev/null)),arm64,x86_64)
 FROSTFALL_BIN = app/.frostfall/$(FROSTFALL_VERSION)/Linux_$(FROSTFALL_ARCH)/frostfall
 
@@ -1147,6 +1154,45 @@ _install-frostfall: check-docker
 	[ "$$got" = "$$want_bin" ] || { echo "_install-frostfall: the extracted binary is $$got, pinned $$want_bin"; exit 1; }; \
 	mkdir -p "$$(dirname "$$bin")"; mv "$$tmp/frostfall" "$$bin"; \
 	echo "_install-frostfall: $$bin ($(FROSTFALL_VERSION), sha256 checked)"
+
+# emberfall, the HTTP checker (https://github.com/aquia-inc/emberfall), fetched and checked
+# the same way as frostfall above: it runs in the same Playwright container, so this takes
+# the Linux build for Docker's architecture, with the tarball's and the binary's sha256
+# pinned and the tarball's also matched against the release's checksums file. Moving to a
+# new version means changing all five values.
+EMBERFALL_VERSION := 0.5.0
+EMBERFALL_SHA256_Linux_x86_64 := f2f873b0fe7a3ba7a174846b2fe5b266fa6c1b284570a0b48369d88fe46bcf1c
+EMBERFALL_SHA256_Linux_arm64 := 2239882d36340ef0144ef31f5ae099564d059597b8220a1f6527ab3a51b26248
+EMBERFALL_BIN_SHA256_Linux_x86_64 := d2f64192376cbb23392e4f8825c9437427239453fc5554772b0930b66421d70a
+EMBERFALL_BIN_SHA256_Linux_arm64 := b5834e0c9c12183097f1427a0ffc347786860ccecacc8304421a3352972fabfc
+EMBERFALL_ARCH = $(if $(filter arm64 aarch64,$(shell docker version --format '{{.Server.Arch}}' 2>/dev/null)),arm64,x86_64)
+EMBERFALL_BIN = app/.emberfall/$(EMBERFALL_VERSION)/Linux_$(EMBERFALL_ARCH)/emberfall
+
+_install-emberfall: check-docker
+	@set -e; bin="$(EMBERFALL_BIN)"; asset="emberfall_Linux_$(EMBERFALL_ARCH).tar.gz"; \
+	want="$(EMBERFALL_SHA256_Linux_$(EMBERFALL_ARCH))"; \
+	want_bin="$(EMBERFALL_BIN_SHA256_Linux_$(EMBERFALL_ARCH))"; \
+	base="https://github.com/aquia-inc/emberfall/releases/download/v$(EMBERFALL_VERSION)"; \
+	sums="emberfall_$(EMBERFALL_VERSION)_checksums.txt"; \
+	if command -v sha256sum >/dev/null 2>&1; then sum="sha256sum"; \
+	elif command -v shasum >/dev/null 2>&1; then sum="shasum -a 256"; \
+	else echo "_install-emberfall: needs sha256sum or shasum"; exit 1; fi; \
+	if [ -x "$$bin" ]; then \
+		[ "$$($$sum "$$bin" | cut -d' ' -f1)" = "$$want_bin" ] && exit 0; \
+		echo "_install-emberfall: $$bin does not match its pinned sha256; fetching it again"; \
+	fi; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsSL --retry 3 --retry-all-errors -o "$$tmp/$$asset" "$$base/$$asset"; \
+	curl -fsSL --retry 3 --retry-all-errors -o "$$tmp/$$sums" "$$base/$$sums"; \
+	got=$$($$sum "$$tmp/$$asset" | cut -d' ' -f1); \
+	[ "$$got" = "$$want" ] || { echo "_install-emberfall: $$asset is $$got, pinned $$want"; exit 1; }; \
+	grep -qx "$$want  $$asset" "$$tmp/$$sums" || \
+		{ echo "_install-emberfall: $$asset's pinned sha256 is not in the release's $$sums"; exit 1; }; \
+	tar -xzf "$$tmp/$$asset" -C "$$tmp" emberfall; \
+	got=$$($$sum "$$tmp/emberfall" | cut -d' ' -f1); \
+	[ "$$got" = "$$want_bin" ] || { echo "_install-emberfall: the extracted binary is $$got, pinned $$want_bin"; exit 1; }; \
+	mkdir -p "$$(dirname "$$bin")"; mv "$$tmp/emberfall" "$$bin"; \
+	echo "_install-emberfall: $$bin ($(EMBERFALL_VERSION), sha256 checked)"
 
 # Every area above, in turn. Each new area adds its target here. CI does not run this
 # target: it runs ci-test and db-seed-check, so a new area's tests must also run through
